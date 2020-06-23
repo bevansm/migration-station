@@ -1,0 +1,42 @@
+version: '3'
+services:
+  mariadb:
+    image: 'docker.io/bitnami/mariadb:10.3-debian-10'
+    container_name: phpbb_db
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+      - MARIADB_USER=bn_phpbb
+      - MARIADB_DATABASE=bitnami_phpbb
+    volumes:
+      - 'mariadb_data:/bitnami'
+  phpbb:
+    image: 'docker.io/bitnami/phpbb:3.1'
+    container_name: phpbb
+    environment:
+      - MARIADB_HOST=mariadb
+      - MARIADB_PORT_NUMBER=3306
+      - PHPBB_DATABASE_USER=bn_phpbb
+      - PHPBB_DATABASE_NAME=bitnami_phpbb
+      - ALLOW_EMPTY_PASSWORD=yes
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - 'phpbb_data:/bitnami'
+    depends_on:
+      - mariadb
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: phpadmin
+    environment: 
+      - PMA_HOST=mariadb
+    depends_on:
+      - mariadb
+    ports:
+      - 8080:80
+volumes:
+  mariadb_data:
+    driver: local
+  phpbb_data:
+    driver: local
+  

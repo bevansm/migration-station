@@ -1,0 +1,53 @@
+{
+  "name": "phpbb_migration",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "start",
+    "build": "tsc",
+    "dev": "ts-node --files src/main.ts",
+    "dev:watch": "nodemon",
+    "start": "npm run build && node dist/main.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/axios": "^0.14.0",
+    "@types/cheerio": "^0.22.18",
+    "@types/md5": "^2.2.0",
+    "@types/shortid": "0.0.29",
+    "@types/tough-cookie": "^4.0.0",
+    "@types/uuid": "^8.0.0",
+    "ts-node": "^8.10.2",
+    "ts-node-dev": "^1.0.0-pre.49",
+    "tslint": "^6.1.2",
+    "tslint-config-prettier": "^1.18.0",
+    "typescript": "^3.9.5"
+  },
+  "dependencies": {
+    "axios": "^0.19.2",
+    "axios-cookiejar-support": "^1.0.0",
+    "cheerio": "^1.0.0-rc.3",
+    "dotenv": "^8.2.0",
+    "form-data": "^3.0.0",
+    "html2bbcode": "^1.2.6",
+    "lodash": "^4.17.15",
+    "md5": "^2.2.1",
+    "shortid": "^2.2.15",
+    "tough-cookie": "^4.0.0",
+    "typescript-tuple": "^2.2.1",
+    "uuid": "^8.1.0"
+  },
+  "nodemonConfig": {
+    "watch": [
+      "src"
+    ],
+    "exec": "npm run dev",
+    "ext": "ts",
+    "ignore": [
+      "*.spec.ts"
+    ],
+    "delay": "3"
+  }
+}
