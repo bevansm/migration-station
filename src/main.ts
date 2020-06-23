@@ -3,7 +3,7 @@ import PHPBBClient from './package/PHPBBClient';
 import Migrator from './package/Migrator';
 import readline from 'readline';
 
-dotenv.config({ path: __dirname + '../.env' });
+dotenv.config({ path: __dirname + './../.env' });
 
 async function runner() {
   const client = new PHPBBClient();
@@ -21,7 +21,7 @@ async function runner() {
       })
     );
     try {
-      client.login(
+      await client.login(
         process.env.OLD_URL,
         process.env.OLD_USERNAME,
         process.env.OLD_PASSWORD,
@@ -29,7 +29,7 @@ async function runner() {
       );
       break;
     } catch (e) {
-      console.log(e);
+      console.log(e.message);
     }
   }
   const migrator = await Migrator.GetMigrator({

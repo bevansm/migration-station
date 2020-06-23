@@ -15,10 +15,7 @@ class PHPBBClient {
   }
 
   private configureInterceptors() {
-    const {
-      interceptors: { request, response },
-    } = this.axios;
-    request.use(async req => {
+    this.axios.interceptors.request.use(async req => {
       const {
         headers: { common },
       } = req;
@@ -30,7 +27,7 @@ class PHPBBClient {
         'text/html,application/xhtml+xml,application/xml,application/json,*/*;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9';
       return req;
     });
-    response.use(async res => {
+    this.axios.interceptors.response.use(async res => {
       this.setCookies(res.config.url, res.headers['set-cookie']);
       return res;
     });
@@ -65,10 +62,10 @@ class PHPBBClient {
       body
     );
     if (status !== 200)
-      throw new Error(`${status} status when trying to log in`);
+      throw new Error(`Recieved ${status} error when trying to log in`);
     if (data.indexOf('class="error"') > -1) {
       const error = data.split('class="error">')[1].split('<')[0];
-      throw new Error(`response page contains an error: ${error}`);
+      throw new Error(`Response page contains an error: ${error}`);
     }
   }
 
@@ -81,7 +78,7 @@ class PHPBBClient {
     data: { [key: string]: any }
   ): Promise<AxiosResponse> {
     const form = new FormData();
-    Object.keys(data).forEach(k => k && form.append(k, data[k]));
+    Object.keys(data).forEach(k => data[k] && form.append(k, data[k]));
     return this.axios.post(url, form, { headers: { ...form.getHeaders() } });
   }
 }
