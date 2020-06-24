@@ -1,11 +1,10 @@
-import PHPBBClient from './PHPBBClient';
 import cheerio from 'cheerio';
-import { HTML2BBCode } from 'html2bbcode';
+import md5 from 'md5';
 import { Concat } from 'typescript-tuple';
 
+import PHPBBClient from './PHPBBClient';
 import { PHPBBCompatibilityUtils } from './Utils';
-import md5 from 'md5';
-import PostParser from './PHPBBPostParser';
+import PostParser, { Post } from './PHPBBPostParser';
 
 /**
  * An UserRow represents the core information for a single user in a phpbb_user column.
@@ -68,6 +67,7 @@ interface MigrationConfig {
   startPostId?: number;
   startForumId?: number;
   rootForumId?: number;
+  shouldLog?: boolean;
 }
 
 /**
@@ -85,15 +85,15 @@ const DefaultConfig: Required<MigrationConfig> = {
   startPostId: 1,
   startForumId: 1,
   rootForumId: 0,
+  shouldLog: true,
 };
 
 class Migrator {
   private client: PHPBBClient;
-  private html2bb: HTML2BBCode;
   private parser: PostParser;
+  private shouldLog: boolean;
 
   private from: string;
-  private to: string;
   private formIds: number[];
   private seed: number;
   private prefix: string;
@@ -111,9 +111,15 @@ class Migrator {
 
   private constructor(config: MigrationConfig) {
     Object.assign(this, { ...DefaultConfig, ...config });
-    this.html2bb = new HTML2BBCode();
     this.users = new Map();
     this.parser = new PostParser();
+    this.forumRows = [];
+    this.topicRows = [];
+    this.postRows = [];
+  }
+
+  private log(str: string) {
+    if (this.shouldLog) console.log(`[${Date.now().toLocaleString()}] ${str}`);
   }
 
   private hashPassword(strSeed: string): string {
@@ -128,8 +134,10 @@ class Migrator {
     // );
     const clean = PHPBBCompatibilityUtils.cleanUsername(username);
     if (this.users.has(clean)) return this.users.get(clean);
+    const uid = this.startUserId + this.users.size;
+    this.log(`Creating user ${username} with id ${uid}`);
     const userRow: UserRow = [
-      this.startUserId + this.users.size,
+      uid,
       username,
       clean,
       `${Math.random() * 100000000}`,
@@ -143,25 +151,27 @@ class Migrator {
     tid: number,
     start = 0
   ): Promise<string[]> {
+    const qs = `viewtopic.php?f=${fid}&t=${tid}&start=${start}`;
+    this.log(`Grabbing posts from ${qs}`);
     const $ = await this.client
-      .get(`${this.from}viewtopic.php?f=${fid}&t=${tid}&start=${start}`)
+      .get(this.from + qs)
       .then(r => cheerio.load(r.data));
     return $('div.post')
       .toArray()
-      .map(e => $(e).html());
+      .map(e => $.html(e));
   }
 
   private async loadForum(fid: number, start = 0): Promise<CheerioStatic> {
-    return this.client
-      .get(`${this.from}viewforum.php?f=${fid}&start=${start}`)
-      .then(r => cheerio.load(r.data));
+    const qs = `viewforum.php?f=${fid}&start=${start}`;
+    this.log(`Grabbing forums/topics from ${qs}`);
+    return this.client.get(this.from + qs).then(r => cheerio.load(r.data));
   }
 
   // Creates a post row under the given topic given the html of a bbcode post.
   private async createPostRow(
     topicId: number,
     forumId: number,
-    contents: string
+    post: Post
   ): Promise<PostRow> {
     const {
       body: { uidbody, uid, bitfield },
@@ -172,13 +182,16 @@ class Migrator {
         timestamp: editTimestamp,
       },
       info: { user, subject, timestamp },
-    } = this.parser.parseString(contents);
-    const userRow = await this.createUserRow(user);
-    const post: PostRow = [
-      this.startPostId + this.postRows.length,
+    } = post;
+    const userId = (await this.createUserRow(user))[0];
+    const id = this.startPostId + this.postRows.length;
+
+    this.log(`Creating post f=${forumId} t=${topicId} p=${id} by ${userId}`);
+    const pr: PostRow = [
+      id,
       topicId,
       forumId,
-      userRow[0],
+      userId,
       timestamp,
       user,
       editTimestamp,
@@ -190,8 +203,8 @@ class Migrator {
       bitfield,
       editReason,
     ];
-    this.postRows.push(post);
-    return post;
+    this.postRows.push(pr);
+    return pr;
   }
 
   private async createTopic(
@@ -203,20 +216,28 @@ class Migrator {
     locked?: boolean
   ): Promise<TopicRow> {
     const tid = this.topicRows.length + this.startTopicId;
+
+    this.log(`Creating topic f=${newfid} t=${tid}`);
     const tr: TopicRow = [tid, Number(sticky), newfid, title, Number(locked)];
     this.topicRows.push(tr);
 
-    const inc = 30;
+    const inc = 25;
+    const visitedPosts = new Set();
     let start = 0;
     let posts = await this.loadPosts(oldfid, oldtid, start);
-    let cont = posts.length === inc;
     while (posts.length > 0) {
-      await this.createPostRow(tid, newfid, posts.pop());
-      // TODO: fix bad looping problem
-      if (posts.length === 0 && cont) {
+      const post = this.parser.parseString(posts.pop());
+      const {
+        info: { id },
+      } = post;
+
+      if (visitedPosts.has(id)) break;
+      visitedPosts.add(id);
+
+      await this.createPostRow(tid, newfid, post);
+      if (posts.length === 0) {
         start += inc;
         posts = await this.loadPosts(oldfid, oldtid, start);
-        cont = posts.length === inc;
       }
     }
 
@@ -224,7 +245,9 @@ class Migrator {
   }
 
   private getTopics($: CheerioStatic): CheerioElement[] {
-    return $('div.forumbg').not('div.annoucement').find('li').toArray();
+    return $('div[class="forumbg"] ul[class="topiclist topics"]')
+      .find('li')
+      .toArray();
   }
 
   private getId(str: string): number {
@@ -240,7 +263,7 @@ class Migrator {
     iscat?: boolean
   ): Promise<ForumRow> {
     let start = 0;
-    let $ = await this.loadForum(fid, start);
+    let $ = await this.loadForum(oldfid, start);
     const row: ForumRow = [fid, pid, lid, rid, $('h2').text(), Number(iscat)];
     this.forumRows.push(row);
 
@@ -270,21 +293,23 @@ class Migrator {
     }
 
     let topics = this.getTopics($);
-    let cont = true;
+    const visitedTopics = new Set();
     while (topics.length) {
       const t = $(topics.pop());
       const title = t.find('a.topictitle');
       const tid = this.getId(title.attr('href'));
+
+      if (visitedTopics.has(tid)) break;
+      visitedTopics.add(tid);
+
       const iSticky = t.hasClass('sticky');
       const isLocked =
         t.find('dl.icon').attr('style').indexOf('_locked.gif') > -1;
       await this.createTopic(oldfid, fid, tid, title.text(), iSticky, isLocked);
-      // TODO: fix bad looping problem
-      if (!topics.length && cont) {
-        start += 35;
-        $ = await this.loadForum(fid, start);
+      if (!topics.length) {
+        start += 25;
+        $ = await this.loadForum(oldfid, start);
         topics = this.getTopics($);
-        cont = topics.length === 35;
       }
     }
 
@@ -292,8 +317,9 @@ class Migrator {
   }
 
   private async init() {
+    this.log(`Preparing to parse forums starting from ${this.formIds}`);
     let r = ([this.startForumId] as unknown) as ForumRow;
-    for (const [i, id] of this.formIds.entries()) {
+    for (const id of this.formIds) {
       if (!this.forumRows.find(x => x[0] === id)) {
         const fid = this.forumRows.length
           ? this.forumRows.slice(-1)[0][0] + 1
@@ -338,32 +364,39 @@ class Migrator {
       .join('\n');
   }
 
-  // Returns the SQL to create & update last posted data on each forum. Assumes topics have been updated.
+  // Returns the SQL to create forum structure
   private getForumSQL() {
     const forums = this.toSQLValues(this.forumRows);
     // TODO: some union magic to get this working cleanly
-    const update = `UPDATE ${this.prefix}forums`;
-    return ``;
+    return this.forumRows.toString();
   }
 
-  // Returns the SQL to create topics & then update first & last post data for each topic. Assumes posts are populated.
-  private getTopicSQL() {
+  // Returns the SQL to create topics
+  private getTopicSQL(): string {
     const topics = this.toSQLValues(this.topicRows);
     // TODO:
-    const update = '';
-    return '';
+    return this.topicRows.toString();
   }
 
   private getPostSQL(): string {
     const posts = this.toSQLValues(this.postRows);
     // TODO:
-    return ``;
+    return this.postRows.toString();
   }
 
   public getStructureSQL(): string {
     return `${this.getPostSQL()}
             ${this.getTopicSQL()}
             ${this.getForumSQL()}`;
+  }
+
+  public toString(): string {
+    return JSON.stringify({
+      posts: this.postRows,
+      topics: this.topicRows,
+      forums: this.forumRows,
+      users: this.users.values(),
+    });
   }
 }
 

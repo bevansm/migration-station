@@ -15,6 +15,7 @@ class Bitfield {
   public toBase64() {
     const i = this.data.reverse().findIndex(Boolean);
     const arr = i === -1 ? [] : this.data.slice(0, this.data.length - i);
-    return btoa(arr.join(''));
+    return Buffer.from(arr.join('')).toString('base64');
   }
 }
+export default Bitfield;

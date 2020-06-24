@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import fs from 'fs';
 import PHPBBClient from './package/PHPBBClient';
 import Migrator from './package/Migrator';
 import readline from 'readline';
@@ -20,6 +21,7 @@ async function runner() {
         resolve();
       })
     );
+    if (!captcha) break;
     try {
       await client.login(
         process.env.OLD_URL,
@@ -35,11 +37,10 @@ async function runner() {
   const migrator = await Migrator.GetMigrator({
     from: process.env.OLD_URL,
     to: process.env.NEW_URL,
+    formIds: process.env.FORUM_IDS.split(' ').map(Number),
     client,
   });
-  console.log(await migrator.getStructureSQL());
-  console.log(await migrator.getUserSQL());
-  console.log(await migrator.getUserPasswords());
+  fs.writeFileSync('./dump.json', migrator.toString());
 }
 
 runner();

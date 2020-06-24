@@ -1,4 +1,5 @@
 import { CookieJar } from 'tough-cookie';
+import { FileCookieStore } from 'tough-cookie-file-store';
 import FormData from 'form-data';
 import AXIOS, { AxiosResponse, AxiosInstance } from 'axios';
 import axiosCookieJarSupport from 'axios-cookiejar-support';
@@ -34,8 +35,9 @@ class PHPBBClient {
   }
 
   constructor() {
-    this.jar = new CookieJar();
-    this.axios = axiosCookieJarSupport(AXIOS.create({ timeout: 60000 }));
+    // @ts-ignore
+    this.jar = new CookieJar(new FileCookieStore('./cookie.jar'));
+    this.axios = axiosCookieJarSupport(AXIOS.create());
     this.configureInterceptors();
   }
 

@@ -1,0 +1,1 @@
+-- This query updates topic & forum last posted/first posted information.

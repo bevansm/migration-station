@@ -1,5 +1,6 @@
 dist
+ref
 node_modules
-*.py
-*.txt
 .env
+cookie.jar
+dump.json

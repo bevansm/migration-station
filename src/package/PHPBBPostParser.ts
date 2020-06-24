@@ -1,6 +1,7 @@
 import { HTML2BBCode as H2B } from 'html2bbcode';
 import cheerio from 'cheerio';
 import shortid from 'shortid';
+import Bitfield from './Bitfield';
 
 interface PostBody {
   uid: string;
@@ -24,7 +25,7 @@ interface PostInfo {
   timestamp: number;
 }
 
-interface Post {
+export interface Post {
   edits: PostEdits;
   info: PostInfo;
   body: PostBody;
@@ -84,6 +85,7 @@ class PostParser {
     const bbcbody = this.parser
       .feed(this.codes.reduce((s, c) => this.replaceTag(s, c), htmlbody))
       .toString();
+    // TODO: deal with this fucker
     const uidbody = this.codes.reduce(
       (s, c) => this.replaceTag(s, c, `${c}:${uid}`),
       bbcbody
