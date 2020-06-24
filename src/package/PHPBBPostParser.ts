@@ -31,42 +31,40 @@ export interface Post {
   body: PostBody;
 }
 
-const defaultTags = [
-  'quote',
-  'b',
-  'i',
-  'url',
-  'img',
-  'size',
-  'color',
-  'u',
-  'code',
-  'list',
-  'email',
-  'flash',
-  'attachment',
-];
+const defaultTags = {
+  code: 8,
+  quote: 0,
+  attachment: 12,
+  b: 1,
+  i: 2,
+  url: 3,
+  img: 4,
+  size: 5,
+  color: 6,
+  u: 7,
+  list: 9,
+  email: 10,
+  flash: 11,
+};
 
 class PostParser {
-  private codes: string[];
+  private codes: { [key: string]: number };
   private parser: H2B;
 
-  constructor(bbcodes: string[] = defaultTags) {
-    this.codes = Object.keys(bbcodes);
+  /**
+   * Initializes the parser w/ the bbcode tags from the forms.
+   * Given tages should be a port of the bbcode table config,
+   *  where the key is the tag sans "=", key value is the bbcode_id.
+   * @param bbcodes
+   */
+  constructor(bbcodes: { [key: string]: number } = {}) {
+    this.codes = { ...defaultTags, ...bbcodes };
     this.parser = new H2B();
   }
 
-  private replaceTag(s: string, tagContents: string, newContents = '') {
-    const newStart = newContents ? `[${newContents}` : newContents;
-    const newEnd = newContents ? `[/${newContents}` : newContents;
-    return s
-      .replace(`[${tagContents}`, newStart)
-      .replace(`[/${tagContents}`, newEnd);
-  }
-
-  private genBitfield(s: string): string {
+  private genBitfield(idxs: number[]): string {
     const bitField = new Bitfield();
-    this.codes.forEach((c, i) => s.indexOf(`[${c}]`) > -1 && bitField.set(i));
+    [...new Set(idxs)].forEach(i => bitField.set(i));
     return bitField.toBase64();
   }
 
@@ -74,34 +72,59 @@ class PostParser {
     const text = $(post).find('.author').text().split('»');
     const id = Number($(post).attr('id').substring(1));
     const user = text[0].trim().split('by').pop().trim();
-    const timestamp = Date.parse(text[1].trim());
+    const timestamp = Date.parse(text[1].trim()) / 1000;
     const subject = $(post).find(`a[href="#p${id}"]`).text();
     return { id, user, timestamp, subject };
   }
 
-  private parsePostBody(post: CheerioElement, $: CheerioStatic): PostBody {
-    const uid = shortid.generate().toLowerCase();
-    const htmlbody = $(post).find('div.content').html();
-    const bbcbody = this.parser
-      .feed(this.codes.reduce((s, c) => this.replaceTag(s, c), htmlbody))
-      .toString();
-    // TODO: deal with this fucker
-    const uidbody = this.codes.reduce(
-      (s, c) => this.replaceTag(s, c, `${c}:${uid}`),
-      bbcbody
+  // Returns true if a string in the form of *** ends with t or t=***
+  private endsWithTag(str: string, t: string): boolean {
+    return (
+      str.slice(-t.length) === t ||
+      str.substring(0, str.lastIndexOf('=')).slice(-t.length) === t
     );
+  }
+
+  // Returns the string w/all tags replaced w/uuids, and a list of indexes corresponding to the opening tags
+  private addTagUIDs(str: string, uid: string): [string, number[]] {
+    const tis: number[] = [];
+    return [
+      str
+        .split(']')
+        .map(lb => {
+          const codes = Object.keys(this.codes);
+          const cs = codes.find(c => this.endsWithTag(lb, `[${c}`));
+          if (cs) {
+            tis.push(this.codes[cs]);
+          } else {
+            const ce = codes.find(c => this.endsWithTag(lb, `[/${c}`));
+            if (!ce) return lb;
+          }
+          return `${lb}:${uid}`;
+        })
+        .join(']'),
+      tis,
+    ];
+  }
+
+  private parsePostBody(post: CheerioElement, $: CheerioStatic): PostBody {
+    const uid = shortid.generate().toLowerCase().slice(-8);
+    const htmlbody = $(post).find('div.content').html();
+    const bbcbody = this.parser.feed(htmlbody).toString();
+    const [uidbody, bidxs] = this.addTagUIDs(bbcbody, uid);
+    const bitfield = this.genBitfield(bidxs);
     return {
       uid,
       htmlbody,
       bbcbody,
       uidbody,
-      bitfield: this.genBitfield(bbcbody),
+      bitfield,
     };
   }
 
   private parsePostEdits(post: CheerioElement, $: CheerioStatic): PostEdits {
     const notice = $(post).find('div.notice');
-    const user = notice.length ? $(notice).find('a').text() : '';
+    const user = notice.length ? $(notice).find('a').text() : '0';
     const timestamp = notice.length
       ? Date.parse(notice.text().split(' on ')[1].split(', edited')[0])
       : 0;

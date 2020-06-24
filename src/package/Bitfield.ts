@@ -3,19 +3,23 @@ class Bitfield {
   private data: number[];
 
   constructor() {
-    this.data = new Array<number>(10);
+    this.data = new Array(10).fill(0);
   }
 
   public set(n: number) {
     const i = Math.floor(n / 8);
+    const d = n % 8;
     // tslint:disable: no-bitwise
-    this.data[i] = this.data[i] | (1 << (7 - (n % 8)));
+    this.data[i] |= 1 << (7 - d);
   }
 
   public toBase64() {
-    const i = this.data.reverse().findIndex(Boolean);
-    const arr = i === -1 ? [] : this.data.slice(0, this.data.length - i);
-    return Buffer.from(arr.join('')).toString('base64');
+    return Buffer.from(
+      this.data
+        .map(c => String.fromCharCode(c))
+        .join('')
+        .replace(/\0+$/, '')
+    ).toString('base64');
   }
 }
 export default Bitfield;

@@ -37,10 +37,18 @@ async function runner() {
   const migrator = await Migrator.GetMigrator({
     from: process.env.OLD_URL,
     to: process.env.NEW_URL,
+    rootForumId: Number(process.env.FORUM_ROOT_ID),
+    startForumId: Number(process.env.FORUM_START_ID),
+    startTopicId: Number(process.env.START_TOPIC_ID),
+    startPostId: Number(process.env.POST_START_ID),
+    startUserId: Number(process.env.USER_START_ID),
     formIds: process.env.FORUM_IDS.split(' ').map(Number),
     client,
   });
-  fs.writeFileSync('./dump.json', migrator.toString());
+  fs.writeFileSync('./out/dump.json', migrator.toString());
+  fs.writeFileSync('./out/users.sql', migrator.getUserSQL());
+  fs.writeFileSync('./out/structure.sql', migrator.getStructureSQL());
+  fs.writeFileSync('./out/passwords.txt', migrator.getUserPasswords());
 }
 
 runner();

@@ -1,5 +1,6 @@
 dist
 ref
+out
 node_modules
 .env
 cookie.jar

@@ -9,16 +9,16 @@ import PostParser, { Post } from './PHPBBPostParser';
 /**
  * An UserRow represents the core information for a single user in a phpbb_user column.
  *
- * [user_id, username, username_clean, user_password]
+ * [user_id, username, username_clean, user_password, group_id]
  */
-type UserRow = [number, string, string, string];
+type UserRow = [number, string, string, string, number];
 
 /**
  * A TopicRow encapsulates a topic on the forum (i.e. a thread)
  *
- * [topic_id,topic_type,forum_id,topic_title,topic_status]
+ * [topic_id,topic_type,forum_id,topic_title,topic_status,topic_visibility]
  */
-type TopicRow = [number, number, number, string, number];
+type TopicRow = [number, number, number, string, number, number];
 
 /**
  * Information of a post that can be extracted from an html post body.
@@ -48,9 +48,20 @@ type PostRow = Concat<[number, number, number, number], PostBodyData>;
 /**
  * A ForumRow encapsulates a subforum within the forum.
  *
- * [forum_id, parent_id, left_id, right_id, forum_name, forum_type]
+ * [forum_id, parent_id, left_id, right_id, forum_name, forum_type, forum_parents, forum_desc, forum_rules, forum_flags]
  */
-type ForumRow = [number, number, number, number, string, number];
+type ForumRow = [
+  number,
+  number,
+  number,
+  number,
+  string,
+  number,
+  string,
+  string,
+  string,
+  number
+];
 
 /**
  * The default configuration for the migration class.
@@ -141,6 +152,7 @@ class Migrator {
       username,
       clean,
       `${Math.random() * 100000000}`,
+      3,
     ];
     this.users.set(clean, userRow);
     return userRow;
@@ -218,7 +230,14 @@ class Migrator {
     const tid = this.topicRows.length + this.startTopicId;
 
     this.log(`Creating topic f=${newfid} t=${tid}`);
-    const tr: TopicRow = [tid, Number(sticky), newfid, title, Number(locked)];
+    const tr: TopicRow = [
+      tid,
+      Number(sticky),
+      newfid,
+      title,
+      Number(locked),
+      1,
+    ];
     this.topicRows.push(tr);
 
     const inc = 25;
@@ -264,7 +283,18 @@ class Migrator {
   ): Promise<ForumRow> {
     let start = 0;
     let $ = await this.loadForum(oldfid, start);
-    const row: ForumRow = [fid, pid, lid, rid, $('h2').text(), Number(iscat)];
+    const row: ForumRow = [
+      fid,
+      pid,
+      lid,
+      rid,
+      $('h2').text(),
+      Number(iscat),
+      '',
+      '',
+      '',
+      48,
+    ];
     this.forumRows.push(row);
 
     const subforums = $('div.forabg').toArray();
@@ -280,8 +310,8 @@ class Migrator {
               sfPending.push([this.getId($(e).attr('href')), false])
             );
     }
+    // NOTE: This likely needs to be fixed (i.e. r/l logic) moving forwards.
     for (const [ofid, cat] of sfPending) {
-      // TODO: figure out the left ids better :(
       await this.crawlForum(
         ofid,
         this.forumRows.slice(-1)[0][0] + 1,
@@ -336,7 +366,9 @@ class Migrator {
   }
 
   private toSQLString(r: any[]): string {
-    return `(${r.map(s => (s instanceof Number ? s : `'${s}'`)).join(', ')})`;
+    return `(${r
+      .map(s => (s instanceof Number ? s : `"${s.replace(/"/g, '\\"')}"`))
+      .join(', ')})`;
   }
 
   private toSQLValues<T extends any[]>(
@@ -367,27 +399,22 @@ class Migrator {
   // Returns the SQL to create forum structure
   private getForumSQL() {
     const forums = this.toSQLValues(this.forumRows);
-    // TODO: some union magic to get this working cleanly
-    return this.forumRows.toString();
+    return `INSERT INTO ${this.prefix}forums (forum_id, parent_id, left_id, right_id, forum_name, forum_type) VALUES ${forums};`;
   }
 
   // Returns the SQL to create topics
   private getTopicSQL(): string {
     const topics = this.toSQLValues(this.topicRows);
-    // TODO:
-    return this.topicRows.toString();
+    return `INSERT INTO ${this.prefix}topics (topic_id,topic_type,forum_id,topic_title,topic_status,topic_visibility) VALUES ${topics};`;
   }
 
   private getPostSQL(): string {
     const posts = this.toSQLValues(this.postRows);
-    // TODO:
-    return this.postRows.toString();
+    return `INSERT INTO ${this.prefix}posts (post_id,topic_id,forum_id,poster_id,post_time,post_username,post_edit_time,post_edit_count,post_edit_user,post_subject,post_text,bbcode_uid,bbcode_bitfield,post_edit_reason) VALUES ${posts};`;
   }
 
   public getStructureSQL(): string {
-    return `${this.getPostSQL()}
-            ${this.getTopicSQL()}
-            ${this.getForumSQL()}`;
+    return `${this.getPostSQL()}\n${this.getTopicSQL()}\n${this.getForumSQL()}`;
   }
 
   public toString(): string {
