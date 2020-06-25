@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import PostParser from '../package/PHPBBPostParser';
+import PostParser from '../package/parsers/PostParser';
 
 const readHtml = (name: string) =>
   fs.readFileSync(path.resolve(__dirname, `../../res/${name}.html`)).toString();

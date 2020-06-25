@@ -73,7 +73,7 @@ class PHPBBClient {
 
   public async get(url: string) {
     // arbitrary timeout for spam
-    await new Promise(r => setTimeout(r, 500));
+    // await new Promise(r => setTimeout(r, 500));
     return this.axios.get(url);
   }
 

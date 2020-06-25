@@ -28,7 +28,7 @@ services:
   phpmyadmin:
     image: phpmyadmin/phpmyadmin
     container_name: phpadmin
-    environment: 
+    environment:
       - PMA_HOST=mariadb
     depends_on:
       - mariadb
@@ -39,4 +39,3 @@ volumes:
     driver: local
   phpbb_data:
     driver: local
-  

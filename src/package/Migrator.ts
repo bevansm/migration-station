@@ -4,14 +4,26 @@ import { Concat } from 'typescript-tuple';
 
 import PHPBBClient from './PHPBBClient';
 import { PHPBBCompatibilityUtils } from './Utils';
-import PostParser, { Post } from './PHPBBPostParser';
+import PostParser, { Post } from './parsers/PostParser';
+import { MigrationMaxError } from './Errors';
+import BBCodeParser from './parsers/BBCodeParser';
 
 /**
  * An UserRow represents the core information for a single user in a phpbb_user column.
  *
- * [user_id, username, username_clean, user_password, group_id]
+ * [user_id, username, username_clean, user_password, group_id, user_permissions, user_sig, user_sig_bbcode_uid, user_sig_bbcode_bitfield]
  */
-type UserRow = [number, string, string, string, number];
+type UserRow = [
+  number,
+  string,
+  string,
+  string,
+  number,
+  string,
+  string,
+  string,
+  string
+];
 
 /**
  * A TopicRow encapsulates a topic on the forum (i.e. a thread)
@@ -73,12 +85,17 @@ interface MigrationConfig {
   formIds?: number[];
   prefix?: string;
   seed?: number;
+  parseUsingQuotePage?: boolean;
   startUserId?: number;
   startTopicId?: number;
   startPostId?: number;
   startForumId?: number;
   rootForumId?: number;
   shouldLog?: boolean;
+  maxUsers?: number;
+  maxPosts?: number;
+  maxTopics?: number;
+  maxForums?: number;
 }
 
 /**
@@ -97,23 +114,18 @@ const DefaultConfig: Required<MigrationConfig> = {
   startForumId: 1,
   rootForumId: 0,
   shouldLog: true,
+  maxUsers: -1,
+  maxPosts: -1,
+  maxForums: -1,
+  maxTopics: -1,
+  parseUsingQuotePage: false,
 };
 
 class Migrator {
   private client: PHPBBClient;
-  private parser: PostParser;
-  private shouldLog: boolean;
-
-  private from: string;
-  private formIds: number[];
-  private seed: number;
-  private prefix: string;
-
-  private startPostId: number;
-  private startTopicId: number;
-  private startForumId: number;
-  private rootForumId: number;
-  private startUserId: number;
+  private postParser: PostParser;
+  private bbcodeParser: BBCodeParser;
+  private config: Required<MigrationConfig>;
 
   private users: Map<string, UserRow>;
   private forumRows: ForumRow[];
@@ -121,20 +133,22 @@ class Migrator {
   private postRows: PostRow[];
 
   private constructor(config: MigrationConfig) {
-    Object.assign(this, { ...DefaultConfig, ...config });
+    this.config = { ...DefaultConfig, ...config };
+    this.client = config.client;
     this.users = new Map();
-    this.parser = new PostParser();
+    this.postParser = new PostParser();
+    this.bbcodeParser = new BBCodeParser();
     this.forumRows = [];
     this.topicRows = [];
     this.postRows = [];
   }
 
   private log(str: string) {
-    if (this.shouldLog) console.log(`[${Date.now().toLocaleString()}] ${str}`);
+    if (this.config.shouldLog) console.log(`[${Date.now() / 1000}] ${str}`);
   }
 
   private hashPassword(strSeed: string): string {
-    return md5(`${strSeed}${this.seed}`);
+    return md5(`${strSeed}${this.config.seed}`);
   }
 
   // Creates a user row with the given username & pushes it to this.userRows
@@ -145,7 +159,10 @@ class Migrator {
     // );
     const clean = PHPBBCompatibilityUtils.cleanUsername(username);
     if (this.users.has(clean)) return this.users.get(clean);
-    const uid = this.startUserId + this.users.size;
+    const uid = this.config.startUserId + this.users.size;
+    const { uidbody, uid: bbcuid, bitfield } = this.bbcodeParser.parse(
+      `Check me out on [url=${this.config.from}memberlist.php?mode=viewprofile&un=${clean}]my homesite![/url]`
+    );
     this.log(`Creating user ${username} with id ${uid}`);
     const userRow: UserRow = [
       uid,
@@ -153,8 +170,14 @@ class Migrator {
       clean,
       `${Math.random() * 100000000}`,
       3,
+      '',
+      uidbody,
+      bbcuid,
+      bitfield,
     ];
     this.users.set(clean, userRow);
+    if (!(this.config.maxUsers - this.users.size))
+      throw new MigrationMaxError(`Reached max users: ${this.config.maxUsers}`);
     return userRow;
   }
 
@@ -166,7 +189,7 @@ class Migrator {
     const qs = `viewtopic.php?f=${fid}&t=${tid}&start=${start}`;
     this.log(`Grabbing posts from ${qs}`);
     const $ = await this.client
-      .get(this.from + qs)
+      .get(this.config.from + qs)
       .then(r => cheerio.load(r.data));
     return $('div.post')
       .toArray()
@@ -176,7 +199,9 @@ class Migrator {
   private async loadForum(fid: number, start = 0): Promise<CheerioStatic> {
     const qs = `viewforum.php?f=${fid}&start=${start}`;
     this.log(`Grabbing forums/topics from ${qs}`);
-    return this.client.get(this.from + qs).then(r => cheerio.load(r.data));
+    return this.client
+      .get(this.config.from + qs)
+      .then(r => cheerio.load(r.data));
   }
 
   // Creates a post row under the given topic given the html of a bbcode post.
@@ -196,7 +221,7 @@ class Migrator {
       info: { user, subject, timestamp },
     } = post;
     const userId = (await this.createUserRow(user))[0];
-    const id = this.startPostId + this.postRows.length;
+    const id = this.config.startPostId + this.postRows.length;
 
     this.log(`Creating post f=${forumId} t=${topicId} p=${id} by ${userId}`);
     const pr: PostRow = [
@@ -216,6 +241,8 @@ class Migrator {
       editReason,
     ];
     this.postRows.push(pr);
+    if (!(this.config.maxPosts - this.postRows.length))
+      throw new MigrationMaxError(`Reached max posts: ${this.config.maxPosts}`);
     return pr;
   }
 
@@ -227,7 +254,7 @@ class Migrator {
     sticky?: boolean,
     locked?: boolean
   ): Promise<TopicRow> {
-    const tid = this.topicRows.length + this.startTopicId;
+    const tid = this.topicRows.length + this.config.startTopicId;
 
     this.log(`Creating topic f=${newfid} t=${tid}`);
     const tr: TopicRow = [
@@ -245,7 +272,15 @@ class Migrator {
     let start = 0;
     let posts = await this.loadPosts(oldfid, oldtid, start);
     while (posts.length > 0) {
-      const post = this.parser.parseString(posts.pop());
+      const strPost = posts.pop();
+      const post = this.config.parseUsingQuotePage
+        ? await this.postParser.parseStringQuote(
+            strPost,
+            oldfid,
+            this.config.from,
+            this.config.client
+          )
+        : this.postParser.parseString(strPost);
       const {
         info: { id },
       } = post;
@@ -260,6 +295,10 @@ class Migrator {
       }
     }
 
+    if (!(this.config.maxTopics - this.topicRows.length))
+      throw new MigrationMaxError(
+        `Reached max topics: ${this.config.maxTopics}`
+      );
     return tr;
   }
 
@@ -297,6 +336,32 @@ class Migrator {
     ];
     this.forumRows.push(row);
 
+    let topics = this.getTopics($);
+    const visitedTopics = new Set();
+    while (topics.length) {
+      const t = $(topics.pop());
+      const title = t.find('a.topictitle');
+      const tid = this.getId(title.attr('href'));
+
+      if (visitedTopics.has(tid)) break;
+      visitedTopics.add(tid);
+
+      const iSticky = t.hasClass('sticky');
+      const isLocked =
+        t.find('dl.icon').attr('style').indexOf('_locked.gif') > -1;
+      await this.createTopic(oldfid, fid, tid, title.text(), iSticky, isLocked);
+      if (!topics.length) {
+        start += 25;
+        $ = await this.loadForum(oldfid, start);
+        topics = this.getTopics($);
+      }
+    }
+
+    if (!(this.config.maxForums - this.forumRows.length))
+      throw new MigrationMaxError(
+        `Reached max forums: ${this.config.maxForums}`
+      );
+
     const subforums = $('div.forabg').toArray();
     const sfPending: [number, boolean][] = [];
     for (const f of subforums) {
@@ -322,40 +387,31 @@ class Migrator {
       );
     }
 
-    let topics = this.getTopics($);
-    const visitedTopics = new Set();
-    while (topics.length) {
-      const t = $(topics.pop());
-      const title = t.find('a.topictitle');
-      const tid = this.getId(title.attr('href'));
-
-      if (visitedTopics.has(tid)) break;
-      visitedTopics.add(tid);
-
-      const iSticky = t.hasClass('sticky');
-      const isLocked =
-        t.find('dl.icon').attr('style').indexOf('_locked.gif') > -1;
-      await this.createTopic(oldfid, fid, tid, title.text(), iSticky, isLocked);
-      if (!topics.length) {
-        start += 25;
-        $ = await this.loadForum(oldfid, start);
-        topics = this.getTopics($);
-      }
-    }
-
     return row;
   }
 
   private async init() {
-    this.log(`Preparing to parse forums starting from ${this.formIds}`);
-    let r = ([this.startForumId] as unknown) as ForumRow;
-    for (const id of this.formIds) {
-      if (!this.forumRows.find(x => x[0] === id)) {
-        const fid = this.forumRows.length
-          ? this.forumRows.slice(-1)[0][0] + 1
-          : this.startForumId;
-        r = await this.crawlForum(id, fid, this.rootForumId, r[0], fid, true);
+    this.log(`Preparing to parse forums starting from ${this.config.formIds}`);
+    let r = ([this.config.startForumId] as unknown) as ForumRow;
+    try {
+      for (const id of this.config.formIds) {
+        if (!this.forumRows.find(x => x[0] === id)) {
+          const fid = this.forumRows.length
+            ? this.forumRows.slice(-1)[0][0] + 1
+            : this.config.startForumId;
+          r = await this.crawlForum(
+            id,
+            fid,
+            this.config.rootForumId,
+            r[0],
+            fid,
+            true
+          );
+        }
       }
+    } catch (e) {
+      this.log(e.message);
+      if (!(e instanceof MigrationMaxError)) throw e;
     }
   }
 
@@ -367,7 +423,7 @@ class Migrator {
 
   private toSQLString(r: any[]): string {
     return `(${r
-      .map(s => (s instanceof Number ? s : `"${s.replace(/"/g, '\\"')}"`))
+      .map(s => (typeof s === 'number' ? s : `"${s.replace(/"/g, '\\"')}"`))
       .join(', ')})`;
   }
 
@@ -385,9 +441,10 @@ class Migrator {
       tmp[3] = this.hashPassword(tmp[2]);
       return tmp;
     });
-    const groups = this.toSQLValues(userRows, u => [2, u[0], 0]);
-    return `INSERT INTO ${this.prefix}users (user_id, username, username_clean, user_password) VALUES ${users}; 
-            INSERT INTO ${this.prefix}user_group (group_id, user_id, user_pending) VALUES ${groups};`;
+    const groups = this.toSQLValues(userRows, u => [6, u[0], 0]);
+    const { prefix } = this.config;
+    return `INSERT INTO ${prefix}users (user_id, username, username_clean, user_password, group_id, user_permissions, user_sig, user_sig_bbcode_uid, user_sig_bbcode_bitfield) VALUES ${users}; 
+            INSERT INTO ${prefix}user_group (group_id, user_id, user_pending) VALUES ${groups};`;
   }
 
   public getUserPasswords(): string {
@@ -399,18 +456,18 @@ class Migrator {
   // Returns the SQL to create forum structure
   private getForumSQL() {
     const forums = this.toSQLValues(this.forumRows);
-    return `INSERT INTO ${this.prefix}forums (forum_id, parent_id, left_id, right_id, forum_name, forum_type) VALUES ${forums};`;
+    return `INSERT INTO ${this.config.prefix}forums (forum_id, parent_id, left_id, right_id, forum_name, forum_type, forum_parents, forum_desc, forum_rules, forum_flags) VALUES ${forums};`;
   }
 
   // Returns the SQL to create topics
   private getTopicSQL(): string {
     const topics = this.toSQLValues(this.topicRows);
-    return `INSERT INTO ${this.prefix}topics (topic_id,topic_type,forum_id,topic_title,topic_status,topic_visibility) VALUES ${topics};`;
+    return `INSERT INTO ${this.config.prefix}topics (topic_id, topic_type, forum_id, topic_title, topic_status, topic_visibility) VALUES ${topics};`;
   }
 
   private getPostSQL(): string {
     const posts = this.toSQLValues(this.postRows);
-    return `INSERT INTO ${this.prefix}posts (post_id,topic_id,forum_id,poster_id,post_time,post_username,post_edit_time,post_edit_count,post_edit_user,post_subject,post_text,bbcode_uid,bbcode_bitfield,post_edit_reason) VALUES ${posts};`;
+    return `INSERT INTO ${this.config.prefix}posts (post_id,topic_id,forum_id,poster_id,post_time,post_username,post_edit_time,post_edit_count,post_edit_user,post_subject,post_text,bbcode_uid,bbcode_bitfield,post_edit_reason) VALUES ${posts};`;
   }
 
   public getStructureSQL(): string {

@@ -37,7 +37,6 @@
     "html2bbcode": "^1.2.6",
     "lodash": "^4.17.15",
     "md5": "^2.2.1",
-    "shortid": "^2.2.15",
     "tough-cookie": "^4.0.0",
     "tough-cookie-file-store": "^2.0.2",
     "ts-jest": "^26.1.1",

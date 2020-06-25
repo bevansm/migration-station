@@ -1,15 +1,11 @@
-import { HTML2BBCode as H2B } from 'html2bbcode';
 import cheerio from 'cheerio';
-import shortid from 'shortid';
-import Bitfield from './Bitfield';
+import PHPBBClient from '../PHPBBClient';
+import Parser from './Parser';
+import BBCodeParser, { ParsedBBCode } from './BBCodeParser';
 
-interface PostBody {
-  uid: string;
-  bitfield: string;
-  uidbody: string;
+type PostBody = {
   htmlbody: string;
-  bbcbody: string;
-}
+} & ParsedBBCode;
 
 interface PostEdits {
   user: string;
@@ -31,41 +27,12 @@ export interface Post {
   body: PostBody;
 }
 
-const defaultTags = {
-  code: 8,
-  quote: 0,
-  attachment: 12,
-  b: 1,
-  i: 2,
-  url: 3,
-  img: 4,
-  size: 5,
-  color: 6,
-  u: 7,
-  list: 9,
-  email: 10,
-  flash: 11,
-};
+class PostParser extends Parser {
+  private bbcodeParser: BBCodeParser;
 
-class PostParser {
-  private codes: { [key: string]: number };
-  private parser: H2B;
-
-  /**
-   * Initializes the parser w/ the bbcode tags from the forms.
-   * Given tages should be a port of the bbcode table config,
-   *  where the key is the tag sans "=", key value is the bbcode_id.
-   * @param bbcodes
-   */
   constructor(bbcodes: { [key: string]: number } = {}) {
-    this.codes = { ...defaultTags, ...bbcodes };
-    this.parser = new H2B();
-  }
-
-  private genBitfield(idxs: number[]): string {
-    const bitField = new Bitfield();
-    [...new Set(idxs)].forEach(i => bitField.set(i));
-    return bitField.toBase64();
+    super(bbcodes);
+    this.bbcodeParser = new BBCodeParser(bbcodes);
   }
 
   private parsePostInfo(post: CheerioElement, $: CheerioStatic): PostInfo {
@@ -77,48 +44,24 @@ class PostParser {
     return { id, user, timestamp, subject };
   }
 
-  // Returns true if a string in the form of *** ends with t or t=***
-  private endsWithTag(str: string, t: string): boolean {
-    return (
-      str.slice(-t.length) === t ||
-      str.substring(0, str.lastIndexOf('=')).slice(-t.length) === t
-    );
-  }
-
-  // Returns the string w/all tags replaced w/uuids, and a list of indexes corresponding to the opening tags
-  private addTagUIDs(str: string, uid: string): [string, number[]] {
-    const tis: number[] = [];
-    return [
-      str
-        .split(']')
-        .map(lb => {
-          const codes = Object.keys(this.codes);
-          const cs = codes.find(c => this.endsWithTag(lb, `[${c}`));
-          if (cs) {
-            tis.push(this.codes[cs]);
-          } else {
-            const ce = codes.find(c => this.endsWithTag(lb, `[/${c}`));
-            if (!ce) return lb;
-          }
-          return `${lb}:${uid}`;
-        })
-        .join(']'),
-      tis,
-    ];
-  }
-
   private parsePostBody(post: CheerioElement, $: CheerioStatic): PostBody {
-    const uid = shortid.generate().toLowerCase().slice(-8);
     const htmlbody = $(post).find('div.content').html();
-    const bbcbody = this.parser.feed(htmlbody).toString();
-    const [uidbody, bidxs] = this.addTagUIDs(bbcbody, uid);
-    const bitfield = this.genBitfield(bidxs);
     return {
-      uid,
       htmlbody,
-      bbcbody,
-      uidbody,
-      bitfield,
+      ...this.bbcodeParser.parse(htmlbody),
+    };
+  }
+
+  private parseBodyFromQuotePage(page: string): PostBody {
+    const body = page
+      .split('[quote=', 2)[1]
+      .split(']', 2)[1]
+      .split('[/quote]')
+      .slice(0, -1)
+      .join('[/quote]');
+    return {
+      htmlbody: body,
+      ...this.bbcodeParser.parse(body),
     };
   }
 
@@ -147,6 +90,33 @@ class PostParser {
       times,
       timestamp,
       user,
+    };
+  }
+
+  // Parses the given string & calls out to query the raw bbcode of the post for ultimate bbcode compatabilitiy
+  public async parseStringQuote(
+    strPost: string,
+    fid: number,
+    baseUrl: string,
+    client: PHPBBClient
+  ): Promise<Post> {
+    const $ = cheerio.load(strPost);
+    const elems = $('div.post');
+    if (!elems.length)
+      throw new Error('Given elem does not contain a phpbb post');
+    const info = this.parsePostInfo(elems[0], $);
+    const edits = this.parsePostEdits(elems[0], $);
+    const { id } = info;
+    const quotePage: string = await client
+      .get(`${baseUrl}posting.php?mode=quote&f=${fid}&p=${id}`)
+      .then(r => r.data);
+    return {
+      info,
+      edits,
+      body:
+        quotePage.indexOf('<h2>Information</h2>') > -1
+          ? this.parseBodyFromQuotePage(quotePage)
+          : this.parsePostBody(elems[0], $),
     };
   }
 

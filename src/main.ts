@@ -43,6 +43,10 @@ async function runner() {
     startPostId: Number(process.env.POST_START_ID),
     startUserId: Number(process.env.USER_START_ID),
     formIds: process.env.FORUM_IDS.split(' ').map(Number),
+    maxTopics: Number(process.env.MAX_TOPICS) || -1,
+    maxPosts: Number(process.env.MAX_POSTS) || -1,
+    shouldLog: true,
+    parseUsingQuotePage: true,
     client,
   });
   fs.writeFileSync('./out/dump.json', migrator.toString());
