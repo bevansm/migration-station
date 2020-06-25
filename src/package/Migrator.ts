@@ -1,84 +1,23 @@
 import cheerio from 'cheerio';
 import md5 from 'md5';
-import { Concat } from 'typescript-tuple';
 
 import PHPBBClient from './PHPBBClient';
 import { PHPBBCompatibilityUtils } from './Utils';
 import PostParser, { Post } from './parsers/PostParser';
 import { MigrationMaxError } from './Errors';
 import BBCodeParser from './parsers/BBCodeParser';
-
-/**
- * An UserRow represents the core information for a single user in a phpbb_user column.
- *
- * [user_id, username, username_clean, user_password, group_id, user_permissions, user_sig, user_sig_bbcode_uid, user_sig_bbcode_bitfield]
- */
-type UserRow = [
-  number,
-  string,
-  string,
-  string,
-  number,
-  string,
-  string,
-  string,
-  string
-];
-
-/**
- * A TopicRow encapsulates a topic on the forum (i.e. a thread)
- *
- * [topic_id,topic_type,forum_id,topic_title,topic_status,topic_visibility]
- */
-type TopicRow = [number, number, number, string, number, number];
-
-/**
- * Information of a post that can be extracted from an html post body.
- *
- * [post_time, post_username, post_edit_time, post_edit_count, post_edit_user, post_subject, post_text, bbcode_uid, bbcode_bitfield, post_edit_reason]
- */
-type PostBodyData = [
-  number,
-  string,
-  number,
-  number,
-  string,
-  string,
-  string,
-  string,
-  string,
-  string
-];
-
-/**
- * A PostRow encapsulates a post on the forum.
- *
- * [post_id, topic_id, forum_id, poster_id, post_time, post_username, post_edit_time, post_edit_count, post_edit_user, post_subject, post_text, bbcode_uid, bbcode_bitfield, post_edit_reason]
- */
-type PostRow = Concat<[number, number, number, number], PostBodyData>;
-
-/**
- * A ForumRow encapsulates a subforum within the forum.
- *
- * [forum_id, parent_id, left_id, right_id, forum_name, forum_type, forum_parents, forum_desc, forum_rules, forum_flags]
- */
-type ForumRow = [
-  number,
-  number,
-  number,
-  number,
-  string,
-  number,
-  string,
-  string,
-  string,
-  number
-];
+import {
+  UserRow,
+  ForumRow,
+  TopicRow,
+  PostRow,
+  TopicStateData,
+} from './SQLRows';
 
 /**
  * The default configuration for the migration class.
  */
-interface MigrationConfig {
+export interface MigrationConfig {
   from: string;
   to: string;
   client: PHPBBClient;
@@ -121,6 +60,20 @@ const DefaultConfig: Required<MigrationConfig> = {
   parseUsingQuotePage: false,
 };
 
+/**
+ * A mapping of user group codes to standard permissions for a given forum.
+ */
+const DefaultForumPermissions: [number, number][] = [
+  [1, 17],
+  [2, 21],
+  [3, 21],
+  [4, 14],
+  [4, 11],
+  [5, 14],
+  [5, 10],
+  [6, 19],
+];
+
 class Migrator {
   private client: PHPBBClient;
   private postParser: PostParser;
@@ -161,7 +114,7 @@ class Migrator {
     if (this.users.has(clean)) return this.users.get(clean);
     const uid = this.config.startUserId + this.users.size;
     const { uidbody, uid: bbcuid, bitfield } = this.bbcodeParser.parse(
-      `Check me out on [url=${this.config.from}memberlist.php?mode=viewprofile&un=${clean}]my homesite![/url]`
+      `[url=${this.config.from}memberlist.php?mode=viewprofile&un=${clean}]Check me out on my homesite![/url]`
     );
     this.log(`Creating user ${username} with id ${uid}`);
     const userRow: UserRow = [
@@ -177,7 +130,10 @@ class Migrator {
     ];
     this.users.set(clean, userRow);
     if (!(this.config.maxUsers - this.users.size))
-      throw new MigrationMaxError(`Reached max users: ${this.config.maxUsers}`);
+      throw new MigrationMaxError(
+        `Reached max users: ${this.config.maxUsers}`,
+        userRow
+      );
     return userRow;
   }
 
@@ -220,29 +176,42 @@ class Migrator {
       },
       info: { user, subject, timestamp },
     } = post;
-    const userId = (await this.createUserRow(user))[0];
-    const id = this.config.startPostId + this.postRows.length;
 
-    this.log(`Creating post f=${forumId} t=${topicId} p=${id} by ${userId}`);
-    const pr: PostRow = [
-      id,
-      topicId,
-      forumId,
-      userId,
-      timestamp,
-      user,
-      editTimestamp,
-      editTimes,
-      editUser,
-      subject,
-      uidbody,
-      uid,
-      bitfield,
-      editReason,
-    ];
-    this.postRows.push(pr);
+    let userId;
+    let pr: PostRow;
+
+    try {
+      userId = (await this.createUserRow(user))[0];
+    } catch (e) {
+      throw e;
+    } finally {
+      const id = this.config.startPostId + this.postRows.length;
+      this.log(`Creating post f=${forumId} t=${topicId} p=${id} by ${userId}`);
+      pr = [
+        id,
+        topicId,
+        forumId,
+        userId,
+        1,
+        timestamp,
+        user,
+        editTimestamp,
+        editTimes,
+        editUser,
+        subject,
+        uidbody,
+        uid,
+        bitfield,
+        editReason,
+      ];
+      this.postRows.push(pr);
+    }
+
     if (!(this.config.maxPosts - this.postRows.length))
-      throw new MigrationMaxError(`Reached max posts: ${this.config.maxPosts}`);
+      throw new MigrationMaxError(
+        `Reached max posts: ${this.config.maxPosts}`,
+        pr
+      );
     return pr;
   }
 
@@ -257,47 +226,75 @@ class Migrator {
     const tid = this.topicRows.length + this.config.startTopicId;
 
     this.log(`Creating topic f=${newfid} t=${tid}`);
-    const tr: TopicRow = [
-      tid,
-      Number(sticky),
-      newfid,
-      title,
-      Number(locked),
-      1,
-    ];
-    this.topicRows.push(tr);
 
     const inc = 25;
     const visitedPosts = new Set();
     let start = 0;
     let posts = await this.loadPosts(oldfid, oldtid, start);
-    while (posts.length > 0) {
-      const strPost = posts.pop();
-      const post = this.config.parseUsingQuotePage
-        ? await this.postParser.parseStringQuote(
-            strPost,
-            oldfid,
-            this.config.from,
-            this.config.client
-          )
-        : this.postParser.parseString(strPost);
-      const {
-        info: { id },
-      } = post;
+    const postState = [];
+    const startPostIdx = this.postRows.length;
+    let tr: TopicRow;
 
-      if (visitedPosts.has(id)) break;
-      visitedPosts.add(id);
+    try {
+      while (posts.length > 0) {
+        const strPost = posts.pop();
+        const post = this.config.parseUsingQuotePage
+          ? await this.postParser.parseStringQuote(
+              strPost,
+              oldfid,
+              this.config.from,
+              this.config.client
+            )
+          : this.postParser.parseString(strPost);
+        const {
+          info: { id },
+        } = post;
 
-      await this.createPostRow(tid, newfid, post);
-      if (posts.length === 0) {
-        start += inc;
-        posts = await this.loadPosts(oldfid, oldtid, start);
+        if (visitedPosts.has(id)) break;
+        visitedPosts.add(id);
+
+        const tmpLastPost = await this.createPostRow(tid, newfid, post);
+        if (startPostIdx === this.postRows.length - 1) {
+          postState.push(
+            tmpLastPost[5],
+            tmpLastPost[0],
+            tmpLastPost[6],
+            tmpLastPost[3]
+          );
+        }
+        if (posts.length === 0) {
+          start += inc;
+          posts = await this.loadPosts(oldfid, oldtid, start);
+        }
       }
+    } catch (e) {
+      throw e;
+    } finally {
+      const lastPost = this.postRows.slice(-1)[0];
+      postState.push(
+        lastPost[0],
+        lastPost[3],
+        lastPost[6],
+        lastPost[10],
+        lastPost[5],
+        this.postRows.length - startPostIdx
+      );
+      tr = [
+        tid,
+        Number(sticky),
+        newfid,
+        title,
+        Number(locked),
+        1,
+        ...(postState as TopicStateData),
+      ];
+      this.topicRows.push(tr);
     }
 
     if (!(this.config.maxTopics - this.topicRows.length))
       throw new MigrationMaxError(
-        `Reached max topics: ${this.config.maxTopics}`
+        `Reached max topics: ${this.config.maxTopics}`,
+        tr
       );
     return tr;
   }
@@ -322,44 +319,68 @@ class Migrator {
   ): Promise<ForumRow> {
     let start = 0;
     let $ = await this.loadForum(oldfid, start);
-    const row: ForumRow = [
-      fid,
-      pid,
-      lid,
-      rid,
-      $('h2').text(),
-      Number(iscat),
-      '',
-      '',
-      '',
-      48,
-    ];
-    this.forumRows.push(row);
 
     let topics = this.getTopics($);
     const visitedTopics = new Set();
-    while (topics.length) {
-      const t = $(topics.pop());
-      const title = t.find('a.topictitle');
-      const tid = this.getId(title.attr('href'));
+    const prevPostIdx = this.postRows.length;
+    let row: ForumRow;
 
-      if (visitedTopics.has(tid)) break;
-      visitedTopics.add(tid);
+    try {
+      while (topics.length) {
+        const t = $(topics.pop());
+        const title = t.find('a.topictitle');
+        const tid = this.getId(title.attr('href'));
 
-      const iSticky = t.hasClass('sticky');
-      const isLocked =
-        t.find('dl.icon').attr('style').indexOf('_locked.gif') > -1;
-      await this.createTopic(oldfid, fid, tid, title.text(), iSticky, isLocked);
-      if (!topics.length) {
-        start += 25;
-        $ = await this.loadForum(oldfid, start);
-        topics = this.getTopics($);
+        if (visitedTopics.has(tid)) break;
+        visitedTopics.add(tid);
+
+        const iSticky = t.hasClass('sticky');
+        const isLocked =
+          t.find('dl.icon').attr('style').indexOf('_locked.gif') > -1;
+        await this.createTopic(
+          oldfid,
+          fid,
+          tid,
+          title.text(),
+          iSticky,
+          isLocked
+        );
+        if (!topics.length) {
+          start += 25;
+          $ = await this.loadForum(oldfid, start);
+          topics = this.getTopics($);
+        }
       }
+    } catch (e) {
+      throw e;
+    } finally {
+      const lastPost = this.postRows.slice(-1)[0];
+      row = [
+        fid,
+        pid,
+        lid,
+        rid,
+        $('h2').text(),
+        Number(iscat),
+        '',
+        '',
+        '',
+        48,
+        lastPost[0],
+        lastPost[3],
+        lastPost[10],
+        lastPost[5],
+        lastPost[6],
+        this.postRows.length - prevPostIdx,
+        visitedTopics.size,
+      ];
+      this.forumRows.push(row);
     }
 
     if (!(this.config.maxForums - this.forumRows.length))
       throw new MigrationMaxError(
-        `Reached max forums: ${this.config.maxForums}`
+        `Reached max forums: ${this.config.maxForums}`,
+        row
       );
 
     const subforums = $('div.forabg').toArray();
@@ -392,19 +413,17 @@ class Migrator {
 
   private async init() {
     this.log(`Preparing to parse forums starting from ${this.config.formIds}`);
-    let r = ([this.config.startForumId] as unknown) as ForumRow;
+    let r = ([this.config.startForumId - 1] as unknown[]) as ForumRow;
     try {
       for (const id of this.config.formIds) {
         if (!this.forumRows.find(x => x[0] === id)) {
-          const fid = this.forumRows.length
-            ? this.forumRows.slice(-1)[0][0] + 1
-            : this.config.startForumId;
+          const fid = r[0] + 1;
           r = await this.crawlForum(
             id,
             fid,
             this.config.rootForumId,
             r[0],
-            fid,
+            fid + 1,
             true
           );
         }
@@ -441,7 +460,7 @@ class Migrator {
       tmp[3] = this.hashPassword(tmp[2]);
       return tmp;
     });
-    const groups = this.toSQLValues(userRows, u => [6, u[0], 0]);
+    const groups = this.toSQLValues(userRows, u => [2, u[0], 0]);
     const { prefix } = this.config;
     return `INSERT INTO ${prefix}users (user_id, username, username_clean, user_password, group_id, user_permissions, user_sig, user_sig_bbcode_uid, user_sig_bbcode_bitfield) VALUES ${users}; 
             INSERT INTO ${prefix}user_group (group_id, user_id, user_pending) VALUES ${groups};`;
@@ -456,22 +475,37 @@ class Migrator {
   // Returns the SQL to create forum structure
   private getForumSQL() {
     const forums = this.toSQLValues(this.forumRows);
-    return `INSERT INTO ${this.config.prefix}forums (forum_id, parent_id, left_id, right_id, forum_name, forum_type, forum_parents, forum_desc, forum_rules, forum_flags) VALUES ${forums};`;
+    return `INSERT INTO ${this.config.prefix}forums (forum_id, parent_id, left_id, right_id, forum_name, forum_type, forum_parents, forum_desc, forum_rules, forum_flags,forum_last_post_id,forum_last_poster_id,forum_last_post_subject,forum_last_post_time,forum_last_poster_name,forum_posts_approved, forum_topics_approved) 
+    VALUES ${forums};`;
   }
 
   // Returns the SQL to create topics
   private getTopicSQL(): string {
     const topics = this.toSQLValues(this.topicRows);
-    return `INSERT INTO ${this.config.prefix}topics (topic_id, topic_type, forum_id, topic_title, topic_status, topic_visibility) VALUES ${topics};`;
+    return `INSERT INTO ${this.config.prefix}topics (topic_id,topic_type,forum_id,topic_title,topic_status,topic_visibility,topic_time, topic_first_post_id, topic_first_poster_name, topic_poster, topic_last_post_id, topic_last_poster_id, topic_last_poster_name, topic_last_post_subject, topic_last_post_time, topic_posts_approved)
+    VALUES ${topics};`;
   }
 
   private getPostSQL(): string {
     const posts = this.toSQLValues(this.postRows);
-    return `INSERT INTO ${this.config.prefix}posts (post_id,topic_id,forum_id,poster_id,post_time,post_username,post_edit_time,post_edit_count,post_edit_user,post_subject,post_text,bbcode_uid,bbcode_bitfield,post_edit_reason) VALUES ${posts};`;
+    return `INSERT INTO ${this.config.prefix}posts (post_id,topic_id,forum_id,poster_id,post_visibility,post_time,post_username,post_edit_time,post_edit_count,post_edit_user,post_subject,post_text,bbcode_uid,bbcode_bitfield,post_edit_reason) 
+    VALUES ${posts};`;
+  }
+
+  private getPermissionsSQL(): string {
+    const forumPermissions = this.forumRows
+      .map(f =>
+        this.toSQLValues(
+          DefaultForumPermissions.map(([gid, pid]) => [gid, f[0], 0, pid, 0])
+        )
+      )
+      .join(',\n');
+    return `INSERT INTO ${this.config.prefix}acl_groups (group_id, forum_id, auth_option_id, auth_role_id, auth_setting) 
+    VALUES ${forumPermissions};`;
   }
 
   public getStructureSQL(): string {
-    return `${this.getPostSQL()}\n${this.getTopicSQL()}\n${this.getForumSQL()}`;
+    return `${this.getPostSQL()}\n${this.getTopicSQL()}\n${this.getForumSQL()}\n${this.getPermissionsSQL()}`;
   }
 
   public toString(): string {
