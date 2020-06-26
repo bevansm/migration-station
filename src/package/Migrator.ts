@@ -25,6 +25,7 @@ export interface MigrationConfig {
   prefix?: string;
   seed?: number;
   parseUsingQuotePage?: boolean;
+  forceEnableAllCodes?: boolean;
   startUserId?: number;
   startTopicId?: number;
   startPostId?: number;
@@ -57,6 +58,7 @@ const DefaultConfig: Required<MigrationConfig> = {
   maxForums: -1,
   maxTopics: -1,
   parseUsingQuotePage: false,
+  forceEnableAllCodes: false,
   tempUsers: false,
 };
 
@@ -91,7 +93,7 @@ class Migrator {
     this.logger = Logger.get();
     this.client = config.client;
     this.users = new Map();
-    this.postParser = new PostParser();
+    this.postParser = new PostParser({}, this.config.forceEnableAllCodes);
     this.bbcodeParser = new BBCodeParser();
     this.forumRows = [];
     this.topicRows = [];

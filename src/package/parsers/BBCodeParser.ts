@@ -23,7 +23,9 @@ class BBCodeParser extends Parser {
     const uid = this.genUID();
     const bbcbody = this.parser.feed(body).toString();
     const [uidbody, bidxs] = this.addTagUIDs(bbcbody, uid);
-    const bitfield = this.genBitfield([...new Set(bidxs)]);
+    const bitfield = this.genBitfield(bidxs);
+    console.log(bidxs, bitfield);
+
     return {
       uid,
       bbcbody,
@@ -38,7 +40,7 @@ class BBCodeParser extends Parser {
 
   // Returns the string w/all tags replaced w/uuids, and a list of indexes corresponding to the opening tags
   private addTagUIDs(str: string, uid: string): [string, number[]] {
-    const tis: number[] = [];
+    const tis = new Set<number>();
     return [
       str
         .split(']')
@@ -46,7 +48,7 @@ class BBCodeParser extends Parser {
           const codes = Object.keys(this.codes);
           const cs = codes.find(c => this.endsWithTag(lb, `[${c}`));
           if (cs) {
-            tis.push(this.codes[cs]);
+            tis.add(this.codes[cs]);
           } else {
             const ce = codes.find(c => this.endsWithTag(lb, `[/${c}`));
             if (!ce) return lb;
@@ -54,7 +56,7 @@ class BBCodeParser extends Parser {
           return `${lb}:${uid}`;
         })
         .join(']'),
-      tis,
+      [...tis],
     ];
   }
 }

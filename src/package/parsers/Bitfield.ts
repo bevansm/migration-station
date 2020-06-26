@@ -1,3 +1,5 @@
+import btoa from 'btoa';
+
 // Bitfield implementation based upon https://www.phpbb.com/support/docs/en/3.2/kb/article/how-to-template-bitfield-and-bbcodes
 class Bitfield {
   private data: number[];
@@ -14,12 +16,12 @@ class Bitfield {
   }
 
   public toBase64() {
-    return Buffer.from(
+    return btoa(
       this.data
         .map(c => String.fromCharCode(c))
+        .filter(c => c !== '\x00')
         .join('')
-        .replace(/\0+$/, '')
-    ).toString('base64');
+    );
   }
 }
 export default Bitfield;

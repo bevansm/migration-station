@@ -28,6 +28,7 @@ const commonTags = {
 
 class Parser {
   protected codes: { [key: string]: number };
+  protected forceAllCodes: boolean;
   protected parser: H2B;
 
   /**
@@ -36,14 +37,23 @@ class Parser {
    *  where the key is the tag sans "=", key value is the bbcode_id.
    * @param bbcodes
    */
-  constructor(bbcodes: { [key: string]: number } = {}) {
+  constructor(
+    bbcodes: { [key: string]: number } = {},
+    forceAllCodes: boolean = false
+  ) {
     this.codes = { ...defaultTags, ...commonTags, ...bbcodes };
+    this.forceAllCodes = forceAllCodes;
     this.parser = new H2B();
   }
 
   protected genBitfield(idxs: number[]): string {
     const bitField = new Bitfield();
-    [...new Set(idxs)].forEach(i => bitField.set(i));
+    if (this.forceAllCodes) {
+      const maxCode = Math.max(...Object.values(this.codes));
+      for (let i = 0; i <= maxCode; i++) bitField.set(i);
+    } else {
+      [...new Set(idxs)].forEach(i => bitField.set(i));
+    }
     return bitField.toBase64();
   }
 }

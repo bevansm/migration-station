@@ -48,6 +48,7 @@ async function runner(message?: PrivateMessage) {
     maxTopics: Number(process.env.MAX_TOPICS) || -1,
     maxPosts: Number(process.env.MAX_POSTS) || -1,
     parseUsingQuotePage: true,
+    forceEnableAllCodes: false,
     tempUsers: true,
     client,
   });
@@ -87,8 +88,8 @@ async function testPM() {
   const client = new PHPBBClient();
   const pmClient = new PMClient(client, process.env.OLD_URL, 1);
   await pmClient.sendPM([process.env.OLD_USERNAME], {
-    body: "Thanks for testing!",
-    subject: "This is a test."
+    body: 'Thanks for testing!',
+    subject: 'This is a test.',
   });
 }
 

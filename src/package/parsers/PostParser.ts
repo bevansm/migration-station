@@ -30,9 +30,12 @@ export interface Post {
 class PostParser extends Parser {
   private bbcodeParser: BBCodeParser;
 
-  constructor(bbcodes: { [key: string]: number } = {}) {
+  constructor(
+    bbcodes: { [key: string]: number } = {},
+    forceAllCodes?: boolean
+  ) {
     super(bbcodes);
-    this.bbcodeParser = new BBCodeParser(bbcodes);
+    this.bbcodeParser = new BBCodeParser(bbcodes, forceAllCodes);
   }
 
   private parsePostInfo(post: CheerioElement, $: CheerioStatic): PostInfo {
