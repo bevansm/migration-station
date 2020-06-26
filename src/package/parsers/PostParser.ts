@@ -38,7 +38,7 @@ class PostParser extends Parser {
   private parsePostInfo(post: CheerioElement, $: CheerioStatic): PostInfo {
     const text = $(post).find('.author').text().split('»');
     const id = Number($(post).attr('id').substring(1));
-    const user = text[0].trim().split('by').pop().trim();
+    const user = text[0].trim().split(' ').pop().trim();
     const timestamp = Date.parse(text[1].trim()) / 1000;
     const subject = $(post).find(`a[href="#p${id}"]`).text();
     return { id, user, timestamp, subject };
@@ -67,9 +67,9 @@ class PostParser extends Parser {
 
   private parsePostEdits(post: CheerioElement, $: CheerioStatic): PostEdits {
     const notice = $(post).find('div.notice');
-    const user = notice.length ? $(notice).find('a').text() : '0';
+    const user = '0';
     const timestamp = notice.length
-      ? Date.parse(notice.text().split(' on ')[1].split(', edited')[0])
+      ? Date.parse(notice.text().split(' on ')[1].split(', edited')[0]) / 1000
       : 0;
     const times = notice.length
       ? Number(notice.text().split(', edited ')[1].split(' ')[0])

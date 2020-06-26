@@ -1,5 +1,5 @@
 import { HTML2BBCode as H2B } from 'html2bbcode';
-import Bitfield from '../Bitfield';
+import Bitfield from './Bitfield';
 
 const defaultTags = {
   code: 8,
@@ -17,6 +17,15 @@ const defaultTags = {
   flash: 11,
 };
 
+const commonTags = {
+  simg: 13,
+  youtube: 14,
+  font: 16,
+  spoiler: 17,
+  center: 18,
+  right: 19,
+};
+
 class Parser {
   protected codes: { [key: string]: number };
   protected parser: H2B;
@@ -28,7 +37,7 @@ class Parser {
    * @param bbcodes
    */
   constructor(bbcodes: { [key: string]: number } = {}) {
-    this.codes = { ...defaultTags, ...bbcodes };
+    this.codes = { ...defaultTags, ...commonTags, ...bbcodes };
     this.parser = new H2B();
   }
 

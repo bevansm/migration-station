@@ -23,7 +23,7 @@ class BBCodeParser extends Parser {
     const uid = this.genUID();
     const bbcbody = this.parser.feed(body).toString();
     const [uidbody, bidxs] = this.addTagUIDs(bbcbody, uid);
-    const bitfield = this.genBitfield(bidxs);
+    const bitfield = this.genBitfield([...new Set(bidxs)]);
     return {
       uid,
       bbcbody,

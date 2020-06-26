@@ -1,2 +1,0 @@
--- This SQL query condenses the user entries w/duplicate usernames.
--- If a user has an entry with an email, we'll prefer that.

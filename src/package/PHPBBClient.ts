@@ -1,8 +1,19 @@
 import { CookieJar } from 'tough-cookie';
 import { FileCookieStore } from 'tough-cookie-file-store';
 import FormData from 'form-data';
+import cheerio from 'cheerio';
 import AXIOS, { AxiosResponse, AxiosInstance } from 'axios';
 import axiosCookieJarSupport from 'axios-cookiejar-support';
+import Logger, { LogLevel } from './Logger';
+
+interface HiddenInputs {
+  form_token?: string;
+  last_click?: string;
+  status_switch?: number;
+  creation_time?: string;
+  to?: number[];
+  bcc?: number[];
+}
 
 /**
  * A wrapper to manage cookies for accessing a PHPBB board.
@@ -46,6 +57,30 @@ class PHPBBClient {
       .value;
   }
 
+  private parseAddress(addField: string): number {
+    return Number(addField.split('[').pop().split(']')[0]);
+  }
+
+  public getHidden(phpbbPage: string): HiddenInputs {
+    const $ = cheerio.load(phpbbPage);
+    const nameToValue: { [key: string]: any } = $('input[type="hidden"]')
+      .toArray()
+      .reduce((acc, c) => {
+        const key = $(c).attr('name');
+        let value: number | string = $(c).attr('value');
+        if (!Number.isNaN(Number(value))) value = Number(value);
+        acc[key] = value;
+        return acc;
+      }, {} as any);
+    const to = Object.keys(nameToValue)
+      .filter(k => nameToValue[k] === 'to')
+      .map(this.parseAddress);
+    const bcc = Object.keys(nameToValue)
+      .filter(k => nameToValue[k] === 'bcc')
+      .map(this.parseAddress);
+    return { ...nameToValue, to, bcc };
+  }
+
   public async login(
     formUrl: string,
     username: string,
@@ -79,10 +114,12 @@ class PHPBBClient {
 
   public async post(
     url: string,
-    data: { [key: string]: any }
+    data: { [key: string]: any } = {}
   ): Promise<AxiosResponse> {
+    Logger.get().log({ data, url, method: 'post' }, LogLevel.VV);
     const form = new FormData();
     Object.keys(data).forEach(k => data[k] && form.append(k, data[k]));
+    await new Promise(r => setTimeout(r, 5000));
     return this.axios.post(url, form, { headers: { ...form.getHeaders() } });
   }
 }

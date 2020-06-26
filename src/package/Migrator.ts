@@ -1,6 +1,5 @@
 import cheerio from 'cheerio';
-import md5 from 'md5';
-
+import sqlstr from 'sqlstring';
 import PHPBBClient from './PHPBBClient';
 import { PHPBBCompatibilityUtils } from './Utils';
 import PostParser, { Post } from './parsers/PostParser';
@@ -13,6 +12,7 @@ import {
   PostRow,
   TopicStateData,
 } from './SQLRows';
+import Logger, { LogLevel } from './Logger';
 
 /**
  * The default configuration for the migration class.
@@ -30,11 +30,11 @@ export interface MigrationConfig {
   startPostId?: number;
   startForumId?: number;
   rootForumId?: number;
-  shouldLog?: boolean;
   maxUsers?: number;
   maxPosts?: number;
   maxTopics?: number;
   maxForums?: number;
+  tempUsers?: boolean;
 }
 
 /**
@@ -46,18 +46,18 @@ const DefaultConfig: Required<MigrationConfig> = {
   client: null,
   formIds: [],
   prefix: 'phpbb_',
-  seed: Math.random() * 12351325,
+  seed: Math.floor(Math.random() * 1345),
   startUserId: 1,
   startTopicId: 1,
   startPostId: 1,
   startForumId: 1,
   rootForumId: 0,
-  shouldLog: true,
   maxUsers: -1,
   maxPosts: -1,
   maxForums: -1,
   maxTopics: -1,
   parseUsingQuotePage: false,
+  tempUsers: false,
 };
 
 /**
@@ -76,6 +76,7 @@ const DefaultForumPermissions: [number, number][] = [
 
 class Migrator {
   private client: PHPBBClient;
+  private logger: Logger;
   private postParser: PostParser;
   private bbcodeParser: BBCodeParser;
   private config: Required<MigrationConfig>;
@@ -87,6 +88,7 @@ class Migrator {
 
   private constructor(config: MigrationConfig) {
     this.config = { ...DefaultConfig, ...config };
+    this.logger = Logger.get();
     this.client = config.client;
     this.users = new Map();
     this.postParser = new PostParser();
@@ -94,14 +96,6 @@ class Migrator {
     this.forumRows = [];
     this.topicRows = [];
     this.postRows = [];
-  }
-
-  private log(str: string) {
-    if (this.config.shouldLog) console.log(`[${Date.now() / 1000}] ${str}`);
-  }
-
-  private hashPassword(strSeed: string): string {
-    return md5(`${strSeed}${this.config.seed}`);
   }
 
   // Creates a user row with the given username & pushes it to this.userRows
@@ -116,12 +110,12 @@ class Migrator {
     const { uidbody, uid: bbcuid, bitfield } = this.bbcodeParser.parse(
       `[url=${this.config.from}memberlist.php?mode=viewprofile&un=${clean}]Check me out on my homesite![/url]`
     );
-    this.log(`Creating user ${username} with id ${uid}`);
+    this.logger.log(`Creating user ${username} with id ${uid}`, LogLevel.VVV);
     const userRow: UserRow = [
       uid,
       username,
-      clean,
-      `${Math.random() * 100000000}`,
+      this.config.tempUsers ? clean + this.config.seed : clean,
+      PHPBBCompatibilityUtils.uid(),
       3,
       '',
       uidbody,
@@ -143,7 +137,7 @@ class Migrator {
     start = 0
   ): Promise<string[]> {
     const qs = `viewtopic.php?f=${fid}&t=${tid}&start=${start}`;
-    this.log(`Grabbing posts from ${qs}`);
+    this.logger.log(`Grabbing posts from ${qs}`, LogLevel.VV);
     const $ = await this.client
       .get(this.config.from + qs)
       .then(r => cheerio.load(r.data));
@@ -154,7 +148,7 @@ class Migrator {
 
   private async loadForum(fid: number, start = 0): Promise<CheerioStatic> {
     const qs = `viewforum.php?f=${fid}&start=${start}`;
-    this.log(`Grabbing forums/topics from ${qs}`);
+    this.logger.log(`Grabbing forums/topics from ${qs}`, LogLevel.V);
     return this.client
       .get(this.config.from + qs)
       .then(r => cheerio.load(r.data));
@@ -186,7 +180,10 @@ class Migrator {
       throw e;
     } finally {
       const id = this.config.startPostId + this.postRows.length;
-      this.log(`Creating post f=${forumId} t=${topicId} p=${id} by ${userId}`);
+      this.logger.log(
+        `Creating post f=${forumId} t=${topicId} p=${id} by ${userId}`,
+        LogLevel.VVVV
+      );
       pr = [
         id,
         topicId,
@@ -225,7 +222,7 @@ class Migrator {
   ): Promise<TopicRow> {
     const tid = this.topicRows.length + this.config.startTopicId;
 
-    this.log(`Creating topic f=${newfid} t=${tid}`);
+    this.logger.log(`Creating topic f=${newfid} t=${tid}`, LogLevel.VV);
 
     const inc = 25;
     const visitedPosts = new Set();
@@ -412,7 +409,10 @@ class Migrator {
   }
 
   private async init() {
-    this.log(`Preparing to parse forums starting from ${this.config.formIds}`);
+    this.logger.log(
+      `Preparing to parse forums starting from ${this.config.formIds}`,
+      LogLevel.V
+    );
     let r = ([this.config.startForumId - 1] as unknown[]) as ForumRow;
     try {
       for (const id of this.config.formIds) {
@@ -429,7 +429,7 @@ class Migrator {
         }
       }
     } catch (e) {
-      this.log(e.message);
+      this.logger.log(e.message, LogLevel.ALWAYS);
       if (!(e instanceof MigrationMaxError)) throw e;
     }
   }
@@ -440,24 +440,21 @@ class Migrator {
     return migrator;
   }
 
-  private toSQLString(r: any[]): string {
-    return `(${r
-      .map(s => (typeof s === 'number' ? s : `"${s.replace(/"/g, '\\"')}"`))
-      .join(', ')})`;
-  }
-
   private toSQLValues<T extends any[]>(
     rows: T[],
     f: (v: T) => any[] = x => x
   ): string {
-    return rows.map(f).map(this.toSQLString).join(',\n');
+    return rows
+      .map(f)
+      .map(r => `(${sqlstr.escape(r)})`)
+      .join(',\n');
   }
 
   public getUserSQL(): string {
     const userRows = Array.from(this.users.values());
     const users = this.toSQLValues(userRows, u => {
       const tmp: UserRow = u.slice() as UserRow;
-      tmp[3] = this.hashPassword(tmp[2]);
+      tmp[3] = PHPBBCompatibilityUtils.hashPassword(tmp[2]);
       return tmp;
     });
     const groups = this.toSQLValues(userRows, u => [2, u[0], 0]);
@@ -467,32 +464,43 @@ class Migrator {
   }
 
   public getUserPasswords(): string {
-    return Array.from(this.users.values())
-      .map(r => `${r[1]},${r[3]}`)
-      .join('\n');
+    throw new Error(
+      'This feature has not been implemented, as we are not correctly hashing user passwords. Cheers!'
+    );
   }
 
   // Returns the SQL to create forum structure
-  private getForumSQL() {
+  public getForumSQL() {
     const forums = this.toSQLValues(this.forumRows);
     return `INSERT INTO ${this.config.prefix}forums (forum_id, parent_id, left_id, right_id, forum_name, forum_type, forum_parents, forum_desc, forum_rules, forum_flags,forum_last_post_id,forum_last_poster_id,forum_last_post_subject,forum_last_post_time,forum_last_poster_name,forum_posts_approved, forum_topics_approved) 
     VALUES ${forums};`;
   }
 
   // Returns the SQL to create topics
-  private getTopicSQL(): string {
+  public getTopicSQL(): string {
     const topics = this.toSQLValues(this.topicRows);
     return `INSERT INTO ${this.config.prefix}topics (topic_id,topic_type,forum_id,topic_title,topic_status,topic_visibility,topic_time, topic_first_post_id, topic_first_poster_name, topic_poster, topic_last_post_id, topic_last_poster_id, topic_last_poster_name, topic_last_post_subject, topic_last_post_time, topic_posts_approved)
     VALUES ${topics};`;
   }
 
-  private getPostSQL(): string {
-    const posts = this.toSQLValues(this.postRows);
+  private getPostSQLPart(rows: PostRow[]): string {
+    const posts = this.toSQLValues(rows);
     return `INSERT INTO ${this.config.prefix}posts (post_id,topic_id,forum_id,poster_id,post_visibility,post_time,post_username,post_edit_time,post_edit_count,post_edit_user,post_subject,post_text,bbcode_uid,bbcode_bitfield,post_edit_reason) 
     VALUES ${posts};`;
   }
 
-  private getPermissionsSQL(): string {
+  public getPostSQLPaginated(n: number = 2500): string[] {
+    const prm: PostRow[][] = [];
+    const tmp = [...this.postRows];
+    while (tmp.length) prm.push(tmp.splice(0, n));
+    return prm.map(pr => this.getPostSQLPart(pr));
+  }
+
+  public getPostSQL(): string {
+    return this.getPostSQLPart(this.postRows);
+  }
+
+  public getPermissionsSQL(): string {
     const forumPermissions = this.forumRows
       .map(f =>
         this.toSQLValues(
@@ -508,13 +516,22 @@ class Migrator {
     return `${this.getPostSQL()}\n${this.getTopicSQL()}\n${this.getForumSQL()}\n${this.getPermissionsSQL()}`;
   }
 
-  public toString(): string {
-    return JSON.stringify({
+  public toJSON(): {
+    posts: PostRow[];
+    topics: TopicRow[];
+    forums: ForumRow[];
+    users: UserRow[];
+  } {
+    return {
       posts: this.postRows,
       topics: this.topicRows,
       forums: this.forumRows,
-      users: this.users.values(),
-    });
+      users: [...this.users.values()],
+    };
+  }
+
+  public toString(): string {
+    return JSON.stringify(this.toJSON());
   }
 }
 
