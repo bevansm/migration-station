@@ -1,14 +1,10 @@
-import { ForumRow } from './model/Forum';
-import { PostRow } from "./model/Post";
-import { TopicRow } from "./model/Topic";
-import { UserRow } from "./model/User";
-
 export class MigrationMaxError extends Error {
-  public row: UserRow[] | PostRow[] | TopicRow[] | ForumRow[];
-  constructor(m: string, row: any[] = []) {
+  public value: any;
+
+  constructor(m: string, value: any) {
     super(m);
     this.message = m;
-    this.row = row;
+    this.value = value;
   }
 }
 

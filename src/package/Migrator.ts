@@ -12,6 +12,7 @@ import Post, { postToRow, PostData } from './model/Post';
 import Topic, { topicToRow } from './model/Topic';
 import { UserRow, User, userToRow } from './model/User';
 import Logger, { LogLevel } from './Logger';
+import { PromiseResult, PromiseRejection } from '../types/PromiseConstructor';
 
 /**
  * The default configuration for the migration class.
@@ -132,7 +133,10 @@ class Migrator {
     };
     this.users.set(clean, user);
     if (!(this.config.maxUsers - this.users.size))
-      throw new MigrationMaxError(`Reached max users: ${this.config.maxUsers}`);
+      throw new MigrationMaxError(
+        `Reached max users: ${this.config.maxUsers}`,
+        user
+      );
     return user;
   }
 
@@ -218,20 +222,24 @@ class Migrator {
       while (posts.length > 0) {
         if (posts.find(p => pPostsSet.has(p))) break;
         posts.forEach(p => pPostsSet.add(p));
-        const data = await Promise.all(
+        const data = await Promise.allSettled(
           posts.map(p => this.createPost(p, oldfid))
         );
-        const mappedPosts: Post[] = data.map((p, i) => ({
-          ...p,
-          post_id: i + this.posts.length + this.config.startPostId,
-          forum_id: newfid,
-          topic_id: newtid,
-        }));
+        const mappedPosts: Post[] = data.map(
+          (p: PromiseResult<Post, MigrationMaxError>, i) => ({
+            // @ts-ignore
+            ...(p.value || p.reason.row),
+            post_id: i + this.posts.length + this.config.startPostId,
+            forum_id: newfid,
+            topic_id: newtid,
+          })
+        );
         this.posts.push(...mappedPosts);
-        if (!(this.config.maxPosts - this.posts.length))
-          throw new MigrationMaxError(
-            `Reached max posts: ${this.config.maxPosts}`
-          );
+
+        const rejectedPosts: MigrationMaxError[] = data
+          .filter(p => p.status === 'rejected')
+          .map((p: PromiseRejection<MigrationMaxError>) => p.reason);
+        if (rejectedPosts.length) throw rejectedPosts[0];
         start += inc;
         posts = await this.loadPosts(oldfid, oldtid, start);
         processedPosts.push(...mappedPosts);
@@ -277,8 +285,10 @@ class Migrator {
       this.toFiles();
     }
 
-    if (!(this.config.maxTopics - this.topics.length))
-      throw new MigrationMaxError(`Max topics: ${this.config.maxTopics}`);
+    if (this.config.maxPosts > 0 && this.config.maxPosts < this.posts.length)
+      throw new MigrationMaxError(`Max posts: ${this.config.maxPosts}`, tr);
+    if (this.config.maxTopics > 0 && this.config.maxTopics < this.topics.length)
+      throw new MigrationMaxError(`Max topics: ${this.config.maxTopics}`, tr);
     return tr;
   }
 
@@ -329,9 +339,15 @@ class Migrator {
               t.find('dl.icon').attr('style').indexOf('_locked.gif') > -1
             );
           });
-          visitedTopics.push(...(await Promise.all(pending)));
+          const results = await Promise.allSettled(pending);
+          visitedTopics.push(
+            ...results.map(v =>
+              // @ts-ignore
+              v.status === 'fulfilled' ? v.value : v.reason.value
+            )
+          );
+          for (const r of results) if (r.status === 'rejected') throw r.reason;
         } catch (e) {
-          console.log(e);
           if (e === DuplicateError) break;
           throw e;
         }
@@ -379,7 +395,7 @@ class Migrator {
     }
 
     if (!(this.config.maxForums - this.forums.length))
-      throw new MigrationMaxError(`Max forums: ${this.config.maxForums}`);
+      throw new MigrationMaxError(`Max forums: ${this.config.maxForums}`, row);
 
     const subforums = $('div.forabg').toArray();
     const sfPending: [number, boolean][] = [];

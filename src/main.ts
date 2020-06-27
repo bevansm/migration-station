@@ -66,6 +66,7 @@ async function runner(message?: PrivateMessage) {
   });
   const end = new Date();
   migrator.toFiles();
+  const { users, posts, forums, topics } = migrator.toJSON();
   const seconds = Math.floor((end.getTime() - start.getTime()) / 1000);
   const minutes = Math.floor(seconds / 60);
   console.log(
@@ -73,6 +74,9 @@ async function runner(message?: PrivateMessage) {
   );
   console.log(
     `Migration took ${minutes} minutes, ${seconds - minutes * 60} seconds.`
+  );
+  console.log(
+    `Created ${forums.length} forums, ${topics.length} topics, ${users.length} users, and ${posts.length} posts.`
   );
 }
 
