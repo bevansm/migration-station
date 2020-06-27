@@ -16,6 +16,7 @@
     "@types/axios": "^0.14.0",
     "@types/btoa": "^1.2.3",
     "@types/cheerio": "^0.22.18",
+    "@types/he": "^1.1.1",
     "@types/jest": "^26.0.0",
     "@types/md5": "^2.2.0",
     "@types/shortid": "0.0.29",
@@ -28,15 +29,18 @@
     "ts-node-dev": "^1.0.0-pre.49",
     "tslint": "^6.1.2",
     "tslint-config-prettier": "^1.18.0",
-    "typescript": "^3.9.5"
+    "typescript": "^3.9.5",
+    "ts-jest": "^26.1.1"
   },
   "dependencies": {
     "axios": "^0.19.2",
     "axios-cookiejar-support": "^1.0.0",
+    "axios-retry": "^3.1.8",
     "btoa": "^1.2.1",
     "cheerio": "^1.0.0-rc.3",
     "dotenv": "^8.2.0",
     "form-data": "^3.0.0",
+    "he": "^1.2.0",
     "html2bbcode": "^1.2.6",
     "lodash": "^4.17.15",
     "md5": "^2.2.1",
@@ -44,9 +48,8 @@
     "sqlstring": "^2.3.2",
     "tough-cookie": "^4.0.0",
     "tough-cookie-file-store": "^2.0.2",
-    "ts-jest": "^26.1.1",
-    "typescript-tuple": "^2.2.1",
-    "uuid": "^8.1.0"
+    "uuid": "^8.1.0",
+    "typescript-tuple": "^2.2.1"
   },
   "nodemonConfig": {
     "watch": [

@@ -21,9 +21,10 @@ const commonTags = {
   simg: 13,
   youtube: 14,
   font: 16,
-  spoiler: 17,
+  spoiler: 27,
   center: 18,
   right: 19,
+  s: 26,
 };
 
 class Parser {
@@ -47,6 +48,7 @@ class Parser {
   }
 
   protected genBitfield(idxs: number[]): string {
+    if (!idxs.length) return '';
     const bitField = new Bitfield();
     if (this.forceAllCodes) {
       const maxCode = Math.max(...Object.values(this.codes));

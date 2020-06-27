@@ -1,5 +1,6 @@
 -- This SQL query merges the second user with the first.
 -- This will only update unique things associated with the user (posts, topics), not their bookmarks
+-- It does not address user messages; we assume that these are ghost accounts.
 -- It will also update view logs and the like.
 -- We keep the permissions of the destination account, so please keep that in mind.
 DELIMITER

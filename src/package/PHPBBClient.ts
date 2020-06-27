@@ -4,6 +4,7 @@ import FormData from 'form-data';
 import cheerio from 'cheerio';
 import AXIOS, { AxiosResponse, AxiosInstance } from 'axios';
 import axiosCookieJarSupport from 'axios-cookiejar-support';
+import axiosRetry from 'axios-retry';
 import Logger, { LogLevel } from './Logger';
 
 interface HiddenInputs {
@@ -49,6 +50,11 @@ class PHPBBClient {
     // @ts-ignore
     this.jar = new CookieJar(new FileCookieStore('./cookie.jar'));
     this.axios = axiosCookieJarSupport(AXIOS.create());
+    axiosRetry(this.axios, {
+      retries: 10,
+      retryDelay: axiosRetry.exponentialDelay,
+      shouldResetTimeout: true,
+    });
     this.configureInterceptors();
   }
 

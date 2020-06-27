@@ -10,7 +10,7 @@ services:
     volumes:
       - 'mariadb_data:/bitnami'
   phpbb:
-    image: 'docker.io/bitnami/phpbb:3.1'
+    image: 'docker.io/bitnami/phpbb:3.3.0-debian-10-r149'
     container_name: phpbb
     environment:
       - MARIADB_HOST=mariadb

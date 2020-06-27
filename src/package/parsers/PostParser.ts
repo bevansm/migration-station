@@ -51,20 +51,16 @@ class PostParser extends Parser {
     const htmlbody = $(post).find('div.content').html();
     return {
       htmlbody,
-      ...this.bbcodeParser.parse(htmlbody),
+      ...this.bbcodeParser.parseHTML(htmlbody),
     };
   }
 
-  private parseBodyFromQuotePage(page: string): PostBody {
-    const body = page
-      .split('[quote=', 2)[1]
-      .split(']', 2)[1]
-      .split('[/quote]')
-      .slice(0, -1)
-      .join('[/quote]');
+  private parseFromTextArea(page: string): PostBody {
+    const textarea = cheerio.load(page)('textarea').text();
+    const body = textarea.slice(textarea.indexOf(']') + 1).slice(0, -9);
     return {
       htmlbody: body,
-      ...this.bbcodeParser.parse(body),
+      ...this.bbcodeParser.parseBBCode(body),
     };
   }
 
@@ -96,6 +92,21 @@ class PostParser extends Parser {
     };
   }
 
+  private async getAndParseQuoteBody(
+    id: number,
+    fid: number,
+    baseUrl: string,
+    client: PHPBBClient
+  ): Promise<PostBody> {
+    const quotePage: string = await client
+      .get(`${baseUrl}posting.php?mode=quote&f=${fid}&p=${id}`)
+      .then(r => r.data);
+    return (
+      quotePage.indexOf('<h2>Information</h2>') === -1 &&
+      this.parseFromTextArea(quotePage)
+    );
+  }
+
   // Parses the given string & calls out to query the raw bbcode of the post for ultimate bbcode compatabilitiy
   public async parseStringQuote(
     strPost: string,
@@ -109,17 +120,12 @@ class PostParser extends Parser {
       throw new Error('Given elem does not contain a phpbb post');
     const info = this.parsePostInfo(elems[0], $);
     const edits = this.parsePostEdits(elems[0], $);
-    const { id } = info;
-    const quotePage: string = await client
-      .get(`${baseUrl}posting.php?mode=quote&f=${fid}&p=${id}`)
-      .then(r => r.data);
     return {
       info,
       edits,
       body:
-        quotePage.indexOf('<h2>Information</h2>') > -1
-          ? this.parseBodyFromQuotePage(quotePage)
-          : this.parsePostBody(elems[0], $),
+        (await this.getAndParseQuoteBody(info.id, fid, baseUrl, client)) ||
+        this.parsePostBody(elems[0], $),
     };
   }
 
