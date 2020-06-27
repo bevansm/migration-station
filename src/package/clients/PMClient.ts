@@ -1,5 +1,5 @@
 import PHPBBClient from './PHPBBClient';
-import Logger, { LogLevel } from './Logger';
+import Logger, { LogLevel } from '../Logger';
 import promiseRetry from 'promise-retry';
 
 export interface PrivateMessage {

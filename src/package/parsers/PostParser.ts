@@ -1,5 +1,5 @@
 import cheerio from 'cheerio';
-import PHPBBClient from '../PHPBBClient';
+import PHPBBClient from '../clients/PHPBBClient';
 import Parser from './Parser';
 import BBCodeParser, { ParsedBBCode } from './BBCodeParser';
 

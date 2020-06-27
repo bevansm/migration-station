@@ -1,1 +1,0 @@
-DELETE FROM phpbb_users WHERE user_id > 2

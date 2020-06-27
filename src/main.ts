@@ -1,8 +1,8 @@
 import dotenv from 'dotenv';
-import PHPBBClient from './package/PHPBBClient';
+import PHPBBClient from './package/clients/PHPBBClient';
 import Migrator from './package/Migrator';
 import readline from 'readline';
-import PMClient, { PrivateMessage } from './package/PMClient';
+import PMClient, { PrivateMessage } from './package/clients/PMClient';
 import path from 'path';
 import fs from 'fs';
 import PostParser from './package/parsers/PostParser';

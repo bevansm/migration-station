@@ -1,6 +1,6 @@
 import cheerio from 'cheerio';
 import sqlstr from 'sqlstring';
-import PHPBBClient from './PHPBBClient';
+import PHPBBClient from './clients/PHPBBClient';
 import { PHPBBCompatibilityUtils } from './Utils';
 import PostParser from './parsers/PostParser';
 import { MigrationMaxError, DuplicateError } from './Errors';

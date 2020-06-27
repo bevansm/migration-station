@@ -5,7 +5,7 @@ import cheerio from 'cheerio';
 import AXIOS, { AxiosResponse, AxiosInstance } from 'axios';
 import axiosCookieJarSupport from 'axios-cookiejar-support';
 import axiosRetry from 'axios-retry';
-import Logger, { LogLevel } from './Logger';
+import Logger, { LogLevel } from '../Logger';
 
 interface HiddenInputs {
   form_token?: string;
