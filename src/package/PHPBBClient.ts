@@ -27,6 +27,12 @@ class PHPBBClient {
     cookies.forEach(c => this.jar.setCookieSync(c, baseUrl));
   }
 
+  public parseError(str: string): string {
+    return str.indexOf('class="error"') > -1
+      ? str.split('class="error">')[1].split('<')[0]
+      : '';
+  }
+
   private configureInterceptors() {
     this.axios.interceptors.request.use(async req => {
       const {
@@ -41,7 +47,17 @@ class PHPBBClient {
       return req;
     });
     this.axios.interceptors.response.use(async res => {
-      this.setCookies(res.config.url, res.headers['set-cookie']);
+      const {
+        config: { url },
+        headers,
+        data,
+      } = res;
+      this.setCookies(url, headers['set-cookie']);
+      const logger = Logger.get();
+      logger.log(headers, LogLevel.VV);
+      logger.log(data, LogLevel.VVVVV);
+      const error = this.parseError(data);
+      if (error) throw new Error(error);
       return res;
     });
   }
@@ -51,7 +67,7 @@ class PHPBBClient {
     this.jar = new CookieJar(new FileCookieStore('./cookie.jar'));
     this.axios = axiosCookieJarSupport(AXIOS.create());
     axiosRetry(this.axios, {
-      retries: 10,
+      retries: 2,
       retryDelay: axiosRetry.exponentialDelay,
       shouldResetTimeout: true,
     });
@@ -87,29 +103,48 @@ class PHPBBClient {
     return { ...nameToValue, to, bcc };
   }
 
+  private getLoggedInUser(str: string): string {
+    const qs = 'href="./.ucp.php?mode=logout';
+    return str.indexOf(qs) > -1
+      ? str
+          .split(qs, 2)
+          .pop()
+          .split('title="Logout [', 2)
+          .pop()
+          .split(']', 1)[0]
+          .trim()
+      : '';
+  }
+
   public async login(
     formUrl: string,
     username: string,
     password: string,
     captcha?: string
   ) {
+    const { data: cachedata } = await this.get(`${formUrl}`);
+    const currentyLoggedIn = this.getLoggedInUser(cachedata);
+    if (currentyLoggedIn === username) return;
+    if (currentyLoggedIn)
+      throw new Error(
+        `Unable to log into ${username}, as ${currentyLoggedIn} is currently logged in.`
+      );
     const body = {
       username,
       password,
       autologin: 'on',
       login: 'Login',
+      sid: this.getSession(formUrl),
+      redirect: 'index.php',
       'g-recaptcha-response': captcha,
     };
     const { status, data } = await this.post(
       `${formUrl}ucp.php?mode=login`,
-      body
+      body,
+      0
     );
     if (status !== 200)
       throw new Error(`Recieved ${status} error when trying to log in`);
-    if (data.indexOf('class="error"') > -1) {
-      const error = data.split('class="error">')[1].split('<')[0];
-      throw new Error(`Response page contains an error: ${error}`);
-    }
   }
 
   public async get(url: string) {
@@ -120,12 +155,13 @@ class PHPBBClient {
 
   public async post(
     url: string,
-    data: { [key: string]: any } = {}
+    data: { [key: string]: any } = {},
+    wait = 5000
   ): Promise<AxiosResponse> {
-    Logger.get().log({ data, url, method: 'post' }, LogLevel.VV);
     const form = new FormData();
     Object.keys(data).forEach(k => data[k] && form.append(k, data[k]));
-    await new Promise(r => setTimeout(r, 5000));
+    await new Promise(r => setTimeout(r, wait));
+    Logger.get().log({ data, url, method: 'post' }, LogLevel.VV);
     return this.axios.post(url, form, { headers: { ...form.getHeaders() } });
   }
 }

@@ -6,7 +6,7 @@ import PMClient, { PrivateMessage } from './package/PMClient';
 import path from 'path';
 import fs from 'fs';
 import PostParser from './package/parsers/PostParser';
-import { UserRow } from './package/model/User';
+import User, { UserRow } from './package/model/User';
 
 dotenv.config({ path: __dirname + './../.env' });
 
@@ -103,12 +103,14 @@ function getMigrationMessage(newUn: string): PrivateMessage {
 
     If you’d like to merge this ghost user with your account on the new forums, please reply to this message with the username you’d like the posts to be associated with. [b]Make sure that you’ve already created an account on the new forum with that name.[/b] We may need more information to verify that the destination account is yours, so please hang tight!
     
+    Please also let us know if you'd like to wipe all of your posts from the new site. We'll be sad to see you go, but we'll understand.
+
     Cheers! We hope to see you soon.`,
   };
 }
 
 async function sendPM() {
-  const { users = [] as UserRow[] } = JSON.parse(
+  const { users = [] as User[] } = JSON.parse(
     fs.readFileSync(
       path.resolve(__dirname, '..', process.env.OUT_DIR, 'dump.json'),
       'utf8'
@@ -116,10 +118,11 @@ async function sendPM() {
   );
   const pmClient = new PMClient(new PHPBBClient(), process.env.OLD_URL, 1);
   try {
-    await Promise.all(
-      users.map((u: UserRow) =>
-        pmClient.sendPM([u[1]], getMigrationMessage(u[2]))
-      )
+    await pmClient.sendPMS(
+      users.map(({ username, username_clean }: User) => [
+        [username],
+        getMigrationMessage(username_clean),
+      ])
     );
   } catch (e) {
     console.log(

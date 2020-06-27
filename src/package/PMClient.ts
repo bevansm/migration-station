@@ -1,5 +1,6 @@
 import PHPBBClient from './PHPBBClient';
 import Logger, { LogLevel } from './Logger';
+import promiseRetry from 'promise-retry';
 
 export interface PrivateMessage {
   body: string;
@@ -96,10 +97,6 @@ class PMClient {
       )
       .then(r => r.data);
     this.logger.log(response, LogLevel.VVVVV);
-    if (response.indexOf('textarea') > -1) {
-      this.logger.log(response, LogLevel.VVVV);
-      throw new Error('Failed to send message successfully.');
-    }
   }
 
   private async sendPMHelper(recipients: string[], message: PrivateMessage) {
@@ -116,6 +113,13 @@ class PMClient {
         this.sendPMHelper(tmp.splice(0, this.maxRecipients), message)
       );
     await Promise.all(requests);
+  }
+
+  public async sendPMS(pms: [string[], PrivateMessage][], timeout = 2500) {
+    for (let i = 0; i < pms.length; i++) {
+      await promiseRetry(() => this.sendPM(...pms[i]), { retries: 3 });
+      if (i) await new Promise(resolve => setTimeout(resolve, timeout));
+    }
   }
 }
 

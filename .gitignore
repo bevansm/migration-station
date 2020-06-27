@@ -3,5 +3,5 @@ ref
 out
 node_modules
 .env
-cookie.jar
+*cookie.jar
 dump.json
