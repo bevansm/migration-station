@@ -27,7 +27,7 @@ class PHPBBClient {
     cookies.forEach(c => this.jar.setCookieSync(c, baseUrl));
   }
 
-  public parseError(str: string): string {
+  private parseError(str: string): string {
     return str.indexOf('class="error"') > -1
       ? str.split('class="error">')[1].split('<')[0]
       : '';
@@ -53,9 +53,6 @@ class PHPBBClient {
         data,
       } = res;
       this.setCookies(url, headers['set-cookie']);
-      const logger = Logger.get();
-      logger.log(headers, LogLevel.VV);
-      logger.log(data, LogLevel.VVVVV);
       const error = this.parseError(data);
       if (error) throw new Error(error);
       return res;

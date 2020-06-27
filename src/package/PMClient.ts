@@ -117,7 +117,7 @@ class PMClient {
 
   public async sendPMS(pms: [string[], PrivateMessage][], timeout = 2500) {
     for (let i = 0; i < pms.length; i++) {
-      await promiseRetry(() => this.sendPM(...pms[i]), { retries: 3 });
+      await promiseRetry(r => this.sendPM(...pms[i]).catch(r), { retries: 3 });
       if (i) await new Promise(resolve => setTimeout(resolve, timeout));
     }
   }
