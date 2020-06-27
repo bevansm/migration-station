@@ -22,7 +22,6 @@ BBCode parsing is hit and miss. You can play around with the values in [Parser.t
 
 We do, however, manage to pull out all the codes & append identifiers to tags, so re-parsing posts from the output json object shouldn't be too horrible. The best way to do an export is always, always to ask the dba/admin of your homesite if they'd run a simple sql export for you:
 
-    ```
         Hi, [x].
 
         We are looking to our community to a different forum. Would you be willing to run a query for us so we can export the posts on the fourm?
@@ -34,7 +33,6 @@ We do, however, manage to pull out all the codes & append identifiers to tags, s
         We appreciate your time,
 
         [z]
-    ```
 
 It will always be quicker, and less resource intensive, for them to run that query and dump the results in a bucket someplace instead of running the script. You're hitting the DB indirectly thousands of times, rather than one direct query. From there, you can rehash the bitfields & update your bbcode as needed.
 
